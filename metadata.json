@@ -1,0 +1,6 @@
+{
+  "name": "Discord Moderator",
+  "description": "A powerful moderation and user management bot for Discord with warnings, bans, kicks, and mutes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
