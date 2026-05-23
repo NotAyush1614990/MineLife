@@ -13,11 +13,36 @@ import {
   ChatInputCommandInteraction
 } from "discord.js";
 import dotenv from "dotenv";
+import { GoogleGenAI, Type } from "@google/genai";
 
 dotenv.config();
 
+let genAIInstance: GoogleGenAI | null = null;
+
+function getGenAI(): GoogleGenAI {
+  if (genAIInstance) return genAIInstance;
+  
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY environment variable is not set. Please add your API key in the 'Secrets' panel in the AI Studio settings.");
+  }
+  
+  genAIInstance = new GoogleGenAI({
+    apiKey: apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      }
+    }
+  });
+  return genAIInstance;
+}
+
 const app = express();
 const PORT = 3000;
+
+// Utility for rate limiting
+const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 app.use(express.json());
 
@@ -32,10 +57,77 @@ if (!fs.existsSync(DB_PATH)) {
       inviteFilter: true,
       wordFilter: [],
       maxMentions: 5,
-      mentionFilter: true
+      mentionFilter: true,
+      badWordFilter: true
     }
   }));
 }
+
+interface AutoModActions {
+  delete: boolean;
+  warn: boolean;
+  mute: boolean;
+  ban: boolean;
+  kick: boolean;
+  muteDurationMs?: number;
+}
+
+const DEFAULT_ACTIONS: AutoModActions = { delete: true, warn: true, mute: false, ban: false, kick: false };
+
+const DEFAULT_AUTOMOD_SETTINGS = { 
+  antiSpam: true, 
+  antiSpamActions: { ...DEFAULT_ACTIONS },
+  antiSpamBypassRoles: [],
+  antiSpamBypassPermissions: ["ManageMessages", "ModerateMembers"],
+  spamLimit: 5,
+  muteDurationMs: 10 * 60 * 1000,
+  inviteFilter: true, 
+  inviteFilterActions: { ...DEFAULT_ACTIONS, warn: false },
+  inviteFilterBypassRoles: [],
+  inviteFilterBypassPermissions: ["ManageMessages", "ModerateMembers"],
+  wordFilter: [], 
+  badWordFilter: true,
+  badWordList: [
+    // Sexual / NSFW
+    "porn", "xxx", "sex", "sexual", "nipple", "pussy", "dick", "cock", "vagina", "penis", "slut", "whore", "escort", "hentai", "cum", "ejaculate", "blowjob", "handjob", "bondage", "bdsm", "rape", "molest", "pedophile", "incest", "orgasm", "clitoris", "ejaculation", "semen", "sperm", "fetish", "pornography", "softcore", "hardcore", "webcam", "strip", "nude", "naked", "erotic", "threesome", "anal", "oral", "facial",
+    // Hated / Slurs
+    "nigger", "kike", "faggot", "tranny", "retard", "coon", "spic", "wetback", "chink", "gook", "paki", "kyke", "libtard", "cuck", "nazi", "hitler", "holocaust", "genocide", "terrorist", "faig", "dyke", "shemale", "bitch", "whore", "slut", "negro", "blacky", "curry muncher", "dothead", "sand nigger", "coolie", "mick", "wop", "frog", "kraut", "jap", "gook", "zipperhead", "camel jockey", "towelhead",
+    // Toxic / Abusive (English)
+    "fuck", "shit", "bitch", "asshole", "bastard", "motherfucker", "cunt", "prick", "twat", "dickhead", "douche", "jerk", "idiot", "dumbass", "stupid", "hate", "vulgar", "abusive", "toxic", "harassment", "kill yourself", "kys", "die", "suicide", "trash", "garbage", "loser", "noob", "ugly", "fat", "short", "kill you", "shoot", "stab", "murder", "rape", "burn", "hell", "piss", "scum", "lowlife", "fuck off", "shut up", "idiot", "moron", "imbecile", "trash", "worthless", "retard", "autistic", "cancer", "stfu", "gtfo", "lmfao", "fucking", "shitting", "dick", "pussy",
+    // Toxic / Abusive (Hindi/Hinglish)
+    "chutiya", "gand", "chod", "randi", "bhen", "bhosdike", "lavde", "harami", "saala", "kamine", "madarchod", "behenchod", "gaandu", "tatte", "lund", "suar", "kutte", "bhadwe", "chinar", "haramkhor", "besharam", "rakhel", "pagal", "gadhe", "ullu", "kamina", "kalua", "bhangi", "chammar", "chutia", "gandu", "muthbaaz", "jhaatu", "lowda", "lawda", "chudai", "gaand", "hijra", "chhaka", "chikna", "saale", "bhadwi", "randwa", "lund", "toat", "mutth", "randi", "chinaar", "kudwa", "kutiya", "kamini", "item", "maal", "pichwada", "jhant", "jhat", "jhantoo", "loda",
+    // Devanagari 
+    "चूतिया", "गांड", "चोद", "रंडी", "बहन", "भोसड़ीके", "लौड़े", "हरामी", "साला", "कमीने", "मादरचोद", "बहनचोद", "गांडू", "तत्ते", "लुंड", "सूअर", "कुत्ते", "भड़वे", "छिनार", "हरामखोर", "बेशर्म", "रखैल", "पागल", "गधे", "उल्लू", "चुटिया", "गाँडू", "मुठबाज़", "झाँटू", "लौड़ा", "चढ़ाई", "हिजड़ा", "छक्का", "चिकना", "साले", "भड़वी", "रंडवा", "गाँड", "कुतिया", "हरामजादा", "टट्टे", "झाँट"
+  ],
+  bannedPatterns: [
+    // Patterns for obfuscated words
+    "(f|ph)[u*@#]+ck",
+    "s[h*@#]+it",
+    "b[i*@#]+tch",
+    "c[h*@#]ut[i*@#]ya",
+    "m[a*@#]dar[c*@#]hod",
+    "b[e*@#]hen[c*@#]hod",
+    "f.u.c.k",
+    "s.h.i.t",
+    // Patterns for discord invite links (redundant but safe)
+    "discord\\.gg\\/[a-z0-9]+",
+    "discord\\.com\\/invite\\/[a-z0-9]+",
+    // Pattern for mass mention spam (regex version)
+    "(<@!?[0-9]+>\\s*){5,}",
+    // Toxicity: repeated characters for long words
+    "(.)\\1{5,}"
+  ],
+  badWordIgnoreList: [],
+  badWordFilterActions: { ...DEFAULT_ACTIONS },
+  badWordFilterBypassRoles: [],
+  badWordFilterBypassPermissions: ["ManageMessages", "ModerateMembers"],
+  wordFilterActions: { ...DEFAULT_ACTIONS },
+  maxMentions: 5,
+  mentionFilter: true,
+  mentionFilterActions: { ...DEFAULT_ACTIONS },
+  mentionFilterBypassRoles: [],
+  mentionFilterBypassPermissions: ["ManageMessages", "ModerateMembers"]
+};
 
 function getDB() {
   try {
@@ -43,7 +135,8 @@ function getDB() {
       const defaultDB = { 
         warnings: [], 
         auditLog: [],
-        autoMod: { antiSpam: true, inviteFilter: true, wordFilter: [], maxMentions: 5 }
+        autoMod: { antiSpam: true, inviteFilter: true, wordFilter: [], maxMentions: 5 },
+        serverSettings: { autoRoleId: null, botRoleId: null }
       };
       fs.writeFileSync(DB_PATH, JSON.stringify(defaultDB, null, 2));
       return defaultDB;
@@ -54,65 +147,23 @@ function getDB() {
       data.systemLogs = [];
     }
     if (!data.autoMod) {
-      data.autoMod = { 
-        antiSpam: true, 
-        antiSpamActions: { delete: true, warn: true, mute: false, ban: false, kick: false },
-        spamLimit: 5,
-        muteDurationMs: 10 * 60 * 1000,
-        inviteFilter: true, 
-        inviteFilterActions: { delete: true, warn: false, mute: false, ban: false, kick: false },
-        wordFilter: [], 
-        wordFilterActions: { delete: true, warn: true, mute: false, ban: false, kick: false },
-        maxMentions: 5,
-        mentionFilter: true,
-        mentionFilterActions: { delete: true, warn: true, mute: false, ban: false, kick: false }
-      };
-    } else {
-      // Migrate legacy fields to new structure if they exist but actions are missing
-      const defaultActions = { delete: true, warn: true, mute: false, ban: false, kick: false };
-      
-      if (data.autoMod.spamLimit === undefined) data.autoMod.spamLimit = 5;
-      if (data.autoMod.muteDurationMs === undefined) data.autoMod.muteDurationMs = 10 * 60 * 1000;
-
-      if (!data.autoMod.antiSpamActions) {
-        data.autoMod.antiSpamActions = { ...defaultActions };
-      } else if (data.autoMod.antiSpamActions.kick === undefined) {
-        data.autoMod.antiSpamActions.kick = false;
-      }
-
-      if (!data.autoMod.inviteFilterActions) {
-        data.autoMod.inviteFilterActions = { delete: true, warn: false, mute: false, ban: false, kick: false };
-      } else if (data.autoMod.inviteFilterActions.kick === undefined) {
-        data.autoMod.inviteFilterActions.kick = false;
-      }
-
-      if (!data.autoMod.wordFilterActions) {
-        data.autoMod.wordFilterActions = { ...defaultActions };
-      } else if (data.autoMod.wordFilterActions.kick === undefined) {
-        data.autoMod.wordFilterActions.kick = false;
-      }
-
-      if (!data.autoMod.mentionFilterActions) {
-        data.autoMod.mentionFilterActions = { ...defaultActions };
-      } else if (data.autoMod.mentionFilterActions.kick === undefined) {
-        data.autoMod.mentionFilterActions.kick = false;
-      }
-      
-      if (data.autoMod.mentionFilter === undefined) {
-        data.autoMod.mentionFilter = true;
-      }
-      
-      // Remove old single-action fields if they exist (optional but cleaner)
-      delete data.autoMod.antiSpamAction;
-      delete data.autoMod.inviteFilterAction;
-      delete data.autoMod.wordFilterAction;
-      delete data.autoMod.mentionFilterAction;
+      data.autoMod = {}; 
     }
+    
+    // Ensure default settings structure for each guild if accessed via API, 
+    // but here we just ensure the top level object exists.
+    
     if (!data.auditLog) {
       data.auditLog = [];
     }
     if (!data.warnings) {
       data.warnings = [];
+    }
+    if (!data.serverSettings) {
+      data.serverSettings = { autoRoleId: null, botRoleId: null, autoRoleEnabled: false, botRoleEnabled: false };
+    } else {
+      if (data.serverSettings.autoRoleEnabled === undefined) data.serverSettings.autoRoleEnabled = !!data.serverSettings.autoRoleId;
+      if (data.serverSettings.botRoleEnabled === undefined) data.serverSettings.botRoleEnabled = !!data.serverSettings.botRoleId;
     }
     return data;
   } catch (error) {
@@ -120,19 +171,7 @@ function getDB() {
     const defaultDB = { 
       warnings: [], 
       auditLog: [],
-      autoMod: { 
-        antiSpam: true, 
-        antiSpamActions: { delete: true, warn: true, mute: false, ban: false },
-        spamLimit: 5,
-        muteDurationMs: 10 * 60 * 1000,
-        inviteFilter: true, 
-        inviteFilterActions: { delete: true, warn: false, mute: false, ban: false },
-        wordFilter: [], 
-        wordFilterActions: { delete: true, warn: true, mute: false, ban: false },
-        maxMentions: 5,
-        mentionFilter: true,
-        mentionFilterActions: { delete: true, warn: true, mute: false, ban: false }
-      }
+      serverSettings: { autoRoleId: null, botRoleId: null, autoRoleEnabled: false, botRoleEnabled: false }
     };
     fs.writeFileSync(DB_PATH, JSON.stringify(defaultDB, null, 2));
     return defaultDB;
@@ -171,6 +210,28 @@ function logSystem(type: "INFO" | "WARN" | "ERROR" | "SUCCESS", message: string,
   
   saveDB(db);
   console.log(`[${type}] ${message}`, meta || "");
+}
+
+// Helper to check if a member bypasses a specific automod module
+function isModuleBypassed(member: any, bypassRoles: string[] = [], bypassPermissions: string[] = []) {
+  if (!member) return false;
+  // Administrators always bypass
+  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  
+  // Check specific roles
+  if (bypassRoles && bypassRoles.length > 0) {
+    if (bypassRoles.some(roleId => member.roles.cache.has(roleId))) return true;
+  }
+  
+  // Check specific permissions
+  if (bypassPermissions && bypassPermissions.length > 0) {
+    return bypassPermissions.some(perm => {
+      const bit = (PermissionFlagsBits as any)[perm];
+      return bit && member.permissions.has(bit);
+    });
+  }
+  
+  return false;
 }
 
 // Helper to issue a warning and send DM
@@ -232,109 +293,339 @@ const client = new Client({
   ],
 });
 
-// Guild-aware anti-spam cache: guildId-userId => data
-const spamCache = new Map<string, { count: number, lastMessage: number }>();
+async function checkOffenseAI(content: string): Promise<{ violation: boolean, reason?: string }> {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      // Local Heuristic Fallback treated as "Light AI"
+      const toxicKeywords = ["hate", "kill", "die", "stupid", "idiot", "trash", "garbage", "loser", "noob", "ugly", "fat", "short", "piss", "scum", "hell", "fuck", "shit", "bitch", "asshole"];
+      const words = content.toLowerCase().split(/\s+/);
+      const toxicCount = words.filter(w => toxicKeywords.some(tok => w === tok || (w.length > 4 && w.includes(tok)))).length;
+      
+      if (toxicCount >= 2) {
+        return { violation: true, reason: "Heuristic AI Detection: High toxicity density" };
+      }
+      return { violation: false };
+    }
+
+    const ai = getGenAI();
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `You are a professional Discord Moderator AI. 
+Analyze the following message for toxic, offensive, abusive, hateful, or highly inappropriate content (English, Hindi, Hinglish, or mixed).
+Message: "${content}"
+
+Your goal is to detect harassment, slurs, sexual content, or excessive toxicity.
+Respond in JSON format:
+{
+  "isOffensive": boolean,
+  "reason": "very short explanation why it is offensive, else empty"
+}
+If unsure but it seems toxic, mark as offensive.`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            isOffensive: { type: Type.BOOLEAN },
+            reason: { type: Type.STRING }
+          }
+        }
+      }
+    });
+
+    const result = JSON.parse(response.text);
+    return { 
+      violation: result.isOffensive, 
+      reason: result.isOffensive ? `AI Detection: ${result.reason}` : undefined 
+    };
+  } catch (error: any) {
+    if (error?.message?.includes("GEMINI_API_KEY environment variable is not set")) {
+      console.error(error.message);
+    } else if (error?.status === 403 || error?.message?.includes('PERMISSION_DENIED')) {
+      console.error("Gemini API Permission Error: This usually means your API Key lacks the required scopes or is invalid. Please check Settings > Secrets.");
+    } else {
+      console.error("Gemini AI Detection Error:", error);
+    }
+    return { violation: false }; // Fallback to safe if AI fails
+  }
+}
+const spamCache = new Map<string, { messages: { id: string, timestamp: number }[], lastContent: string, duplicateMessages: string[] }>();
+
+// Clean up caches every 10 minutes to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, data] of spamCache.entries()) {
+    if (data.messages.length > 0 && now - data.messages[data.messages.length - 1].timestamp > 60000) {
+      spamCache.delete(key);
+    }
+  }
+  for (const [key, saturation] of mentionSaturationCache.entries()) {
+    if (saturation.length > 0 && now - saturation[saturation.length - 1].time > 60000) {
+      mentionSaturationCache.delete(key);
+    }
+  }
+}, 600000);
 
 // Mention saturation cache: guildId-userId => list of { count: number, time: number }
 const mentionSaturationCache = new Map<string, { count: number, time: number }[]>();
 
-// Auto-mod logic
+// Auto-Role and Bot-Role Logic
+client.on("guildMemberAdd", async (member) => {
+  const db = getDB();
+  const settings = db.serverSettings;
+  if (!settings) return;
+
+  try {
+    if (member.user.bot) {
+      if (settings.botRoleEnabled && settings.botRoleId) {
+        const role = member.guild.roles.cache.get(settings.botRoleId);
+        if (role) {
+          await member.roles.add(role);
+          logSystem("INFO", `Auto-assigned bot role to ${member.user.tag}`);
+        }
+      }
+    } else {
+      if (settings.autoRoleEnabled && settings.autoRoleId) {
+        const role = member.guild.roles.cache.get(settings.autoRoleId);
+        if (role) {
+          await member.roles.add(role);
+          logSystem("INFO", `Auto-assigned member role to ${member.user.tag}`);
+        }
+      }
+    }
+  } catch (err: any) {
+    logSystem("ERROR", `Failed to auto-assign role to ${member.user.tag}: ${err.message}`);
+  }
+});
+
 client.on("messageCreate", async (message) => {
   if (message.author.bot || !message.guild) return;
 
   const db = getDB();
-  const settings = db.autoMod;
+  const guildSettings = db.autoMod?.[message.guild.id];
+  if (!guildSettings) return;
+
   let violation = false;
   let reason = "";
-  let actions: { delete: boolean, warn: boolean, mute: boolean, ban: boolean, kick: boolean } | null = null;
-
-  // Bypass moderators and administrators
-  if (message.member?.permissions.has(PermissionFlagsBits.ModerateMembers) || 
-      message.member?.permissions.has(PermissionFlagsBits.ManageMessages) ||
-      message.member?.permissions.has(PermissionFlagsBits.Administrator)) {
-    return;
-  }
+  let actions: AutoModActions | null = null;
 
   const cacheKey = `${message.guildId}-${message.author.id}`;
 
-  // Anti-Spam Logic (Message Frequency)
-  if (settings.antiSpam) {
+  // 1. Anti-Spam
+  const spamMessageIdsToDelete: string[] = [];
+  if (guildSettings.antiSpam && !isModuleBypassed(message.member, guildSettings.antiSpamBypassRoles, guildSettings.antiSpamBypassPermissions)) {
     const now = Date.now();
-    const userData = spamCache.get(cacheKey) || { count: 0, lastMessage: now };
+    const userData = spamCache.get(cacheKey) || { messages: [], lastContent: "", duplicateMessages: [] };
     
-    // 3 second sliding window for message frequency
-    if (now - userData.lastMessage < 3000) {
-      userData.count++;
+    // Cleanup old messages (older than 5s for better burst detection)
+    userData.messages = userData.messages.filter(m => now - m.timestamp < 5000);
+    userData.messages.push({ id: message.id, timestamp: now });
+
+    // Duplicate detection
+    const cleanContent = message.content.trim().toLowerCase();
+    if (cleanContent && userData.lastContent === cleanContent) {
+      userData.duplicateMessages.push(message.id);
     } else {
-      userData.count = 1;
+      userData.lastContent = cleanContent;
+      // If they changed the message, we only care about the last batch of duplicates
+      userData.duplicateMessages = [message.id];
     }
-    userData.lastMessage = now;
+    
     spamCache.set(cacheKey, userData);
 
-    if (userData.count > (settings.spamLimit || 5)) {
+    const spamLimit = guildSettings.spamLimit || 5;
+    if (userData.messages.length > spamLimit) {
       violation = true;
-      reason = "Spamming too many messages (burst)";
-      actions = settings.antiSpamActions;
+      reason = `Excessive rapid-fire spam (${userData.messages.length} messages in 5s)`;
+      actions = guildSettings.antiSpamActions;
+      // Mark all messages in the burst for deletion
+      spamMessageIdsToDelete.push(...userData.messages.map(m => m.id));
+      // Clear after detection to avoid recursive deletion attempts for same batch
+      userData.messages = [];
+    } else if (userData.duplicateMessages.length >= 3) { // 3 same messages in a row
+      violation = true;
+      reason = "Duplicate message spam";
+      actions = guildSettings.antiSpamActions;
+      // Mark all duplicates for deletion
+      spamMessageIdsToDelete.push(...userData.duplicateMessages);
+      // Clear duplicates to avoid redundant deletion
+      userData.duplicateMessages = [];
     }
   }
 
-  // Invite Link Filter (Improved Regex)
-  if (!violation && settings.inviteFilter) {
-    // Matches discord.gg, discord.com/invite, discordapp.com/invite, etc.
+  // 2. Invite Filter
+  if (!violation && guildSettings.inviteFilter && !isModuleBypassed(message.member, guildSettings.inviteFilterBypassRoles, guildSettings.inviteFilterBypassPermissions)) {
     const inviteRegex = /(https?:\/\/)?(www\.)?(discord\.(gg|io|me|li|com\/invite)|discordapp\.com\/invite)\/[^\s\/]+?(?=\b)/i;
     if (inviteRegex.test(message.content)) {
       violation = true;
-      reason = "Unauthorized invite link detected";
-      actions = settings.inviteFilterActions;
+      reason = "Unauthorized invite link";
+      actions = guildSettings.inviteFilterActions;
     }
   }
 
-  // Word Filter
-  if (!violation && settings.wordFilter && settings.wordFilter.length > 0) {
-    const content = message.content.toLowerCase();
-    for (const word of settings.wordFilter) {
-      if (content.includes(word.toLowerCase())) {
+  // 3. Mentions & Saturation
+  if (!violation && guildSettings.mentionFilter && !isModuleBypassed(message.member, guildSettings.mentionFilterBypassRoles, guildSettings.mentionFilterBypassPermissions)) {
+    const currentMentions = message.mentions.users.size + message.mentions.roles.size + (message.mentions.everyone ? 1 : 0);
+    const mentionLimit = guildSettings.maxMentions || 5;
+
+    // Single message check
+    if (currentMentions > mentionLimit) {
+      violation = true;
+      reason = "Mass mentioning in single message";
+      actions = guildSettings.mentionFilterActions;
+    } else if (currentMentions > 0) {
+      // Saturation check (multiple messages)
+      const now = Date.now();
+      const saturation = mentionSaturationCache.get(cacheKey) || [];
+      saturation.push({ count: currentMentions, time: now });
+      
+      // Keep only last 20 seconds
+      const recentSaturation = saturation.filter(s => now - s.time < 20000);
+      const totalRecentMentions = recentSaturation.reduce((sum, s) => sum + s.count, 0);
+      
+      mentionSaturationCache.set(cacheKey, recentSaturation);
+
+      if (totalRecentMentions > mentionLimit * 2) { // 2x the limit in 20s
         violation = true;
-        reason = `Banned vocabulary detected: ${word}`;
-        actions = settings.wordFilterActions;
-        break;
+        reason = `Mention Saturation: ${totalRecentMentions} mentions in 20s`;
+        actions = guildSettings.mentionFilterActions;
       }
     }
   }
 
-  // Mention Saturation (Advanced: Burst mentions in time window)
-  if (!violation && settings.mentionFilter) {
-    const now = Date.now();
-    // Count mentions in CURRENT message
-    const currentMentions = message.mentions.users.size + 
-                           message.mentions.roles.size + 
-                           (message.mentions.everyone ? 1 : 0);
+  // 4. Advanced Word Filter (English, Hindi, Hinglish, Slang, Leet-speak) + AI
+  if (!violation && guildSettings.badWordFilter && !isModuleBypassed(message.member, guildSettings.badWordFilterBypassRoles, guildSettings.badWordFilterBypassPermissions)) {
+    const rawContent = message.content;
+    const content = rawContent.toLowerCase();
+    const badWords = guildSettings.badWordList || DEFAULT_AUTOMOD_SETTINGS.badWordList;
+    const ignoreList = guildSettings.badWordIgnoreList || [];
+    const filterActions = guildSettings.badWordFilterActions || DEFAULT_AUTOMOD_SETTINGS.badWordFilterActions;
 
-    if (currentMentions > 0) {
-      // Single message limit check
-      if (currentMentions > (settings.maxMentions || 5)) {
-        violation = true;
-        reason = "Mass mention saturation detected (excessive pings)";
-        actions = settings.mentionFilterActions;
-      } else {
-        // Multi-message "saturation" window check (e.g. 15 mentions in 10 seconds)
-        let history = mentionSaturationCache.get(cacheKey) || [];
-        // Prune entries older than 10 seconds
-        history = history.filter(h => now - h.time < 10000);
-        history.push({ count: currentMentions, time: now });
-        mentionSaturationCache.set(cacheKey, history);
-
-        const totalBurstMentions = history.reduce((sum, h) => sum + h.count, 0);
-        
-        // If they pinged say, 20 people in 10 seconds across multiple messages
-        if (totalBurstMentions > (settings.maxMentions * 1.5 || 10)) {
+    // Check if message content contains any whitelisted "Safe Context" words
+    const hasSafeWord = ignoreList.some(safeWord => content.includes(safeWord.toLowerCase()));
+    
+    if (!hasSafeWord) {
+      // AI Detection (Only for non-tiny messages to save quota and latency)
+      if (rawContent.length > 3) {
+        const aiResult = await checkOffenseAI(rawContent);
+        if (aiResult.violation) {
           violation = true;
-          reason = "Mention saturation threshold exceeded (multi-message burst)";
-          actions = settings.mentionFilterActions;
+          reason = aiResult.reason || "Advanced AI Detection Triggered";
+          actions = filterActions;
+        }
+      }
+
+      if (!violation) {
+        // Basic leet-speak and regional character map (Devanagari support)
+        const charMap: Record<string, string> = {
+        'a': '[a4@\u0905\u0906\u03b1\u0430\u00e0\u00e1\u00e2\u00e3\u00e4\u00e5\u00e6]',
+        'b': '[b8\u092C\u03b2\u0432\u00df]',
+        'c': '[ck\u0915\u00a9\u03c2\u00e7]',
+        'd': '[d\u0926\u0921\u03b4\u0434]',
+        'e': '[e3\u090F\u0910\u20ac\u03b5\u0435\u00e8\u00e9\u00ea\u00eb]',
+        'f': '[fph\u03c6]',
+        'g': '[g96\u0917\u03b3\u0433]',
+        'h': '[h\u0939\u03b7\u043d]',
+        'i': '[i1!|\u0907\u0908\u03b9\u0456\u00ec\u00ed\u00ee\u00ef]',
+        'j': '[j\u091C\u03be]',
+        'k': '[ck\u0915\u03ba\u043a]',
+        'l': '[l1|\u0932\u03bb]',
+        'm': '[m\u092E\u03bc\u043c]',
+        'n': '[n\u0928\u03bd\u043d\u00f1]',
+        'o': '[o0\u0913\u0914\u03bf\u043e\u00f2\u00f3\u00f4\u00f5\u00f6\u00f8]',
+        'p': '[p\u092A\u03c1\u0440]',
+        'r': '[r\u0930\u03c1\u0440]',
+        's': '[s5$\u0938\u03c3\u03c2]',
+        't': '[t7+\u0924\u091F\u03c4]',
+        'u': '[uv\u0909\u090A\u03c5\u0443\u00f9\u00fa\u00fb\u00fc]',
+        'v': '[vu\u03bd]',
+        'w': '[w\u03c9ww]',
+        'x': '[x\u03c7\u0445]',
+        'y': '[y\u03c8\u0443\u00fd\u00ff]',
+        'z': '[z\u0950\u03b6]'
+      };
+
+      const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      // 1. Normalized check: Flatten repeated characters and ignore non-alpha-numeric
+      const normalizedContent = content
+        .replace(/[^a-z0-9\u0900-\u097F]/gi, '') // Remove symbols
+        .replace(/(.)\1+/g, '$1'); // Collapse repeats like 'ffffuuuuucccckkk' -> 'fuck'
+
+      for (const word of [...(badWords || []), ...(guildSettings.wordFilter || [])]) {
+        if (!word) continue;
+        
+        const cleanWord = word.toLowerCase().trim();
+        if (cleanWord.length < 2) continue;
+
+        // Check against normalized content
+        if (normalizedContent.includes(cleanWord.replace(/(.)\1+/g, '$1'))) {
+          violation = true;
+          reason = `Banned word detected (Heuristic): ${word}`;
+          actions = filterActions;
+          break;
+        }
+
+        // 2. Original flexible regex check
+        const pattern = word.split('').map(char => {
+          const mapped = charMap[char.toLowerCase()];
+          if (mapped) return mapped + '+';
+          return escapeRegex(char) + '+';
+        }).join('[^a-z0-9\u0900-\u097F]*');
+        const regex = new RegExp(`(\\b|\\d|_|^)${pattern}(\\b|\\d|_|$)`, 'i');
+
+        if (regex.test(content)) {
+          violation = true;
+          reason = `Banned word detected: ${word}`;
+          actions = filterActions;
+          if (!actions.mute && guildSettings.wordFilterActions?.mute) {
+            actions = { ...actions, mute: true };
+          }
+          break;
+        }
+      }
+
+      // Check Raw Banned Patterns (Regex)
+      const patternsToCheck = (guildSettings.bannedPatterns && guildSettings.bannedPatterns.length > 0) 
+        ? guildSettings.bannedPatterns 
+        : DEFAULT_AUTOMOD_SETTINGS.bannedPatterns;
+
+      if (!violation && patternsToCheck && patternsToCheck.length > 0) {
+        for (const pattern of patternsToCheck) {
+          try {
+            const regex = new RegExp(pattern, 'i');
+            if (regex.test(message.content)) {
+              violation = true;
+              reason = `Banned pattern detected: ${pattern}`;
+              actions = filterActions;
+              break;
+            }
+          } catch (e) {
+            console.error(`Invalid regex pattern in guild ${message.guildId}: ${pattern}`);
+          }
+        }
+      }
+
+      // 4.1 Zalgo/Glitch Text Detection
+      if (!violation && /[\u0300-\u036f]{3,}/.test(message.content)) {
+        violation = true;
+        reason = "Zalgo/Glitched text detected";
+        actions = filterActions;
+      }
+
+      // 4.2 Caps Abuse Detection (If message is long enough)
+      if (!violation && message.content.length > 20) {
+        const capsCount = message.content.replace(/[^A-Z]/g, "").length;
+        if (capsCount / message.content.length > 0.7) {
+          violation = true;
+          reason = "Excessive Caps Lock usage";
+          actions = filterActions;
         }
       }
     }
   }
+}
 
   if (violation && actions) {
     try {
@@ -343,63 +634,57 @@ client.on("messageCreate", async (message) => {
 
       logSystem("WARN", `Auto-Mod Triggered: ${reason} for ${message.author.tag}`, { actions });
 
+      // Escalation Logic
+      const userWarnings = db.warnings.filter((w: any) => w.userId === member.id && w.guildId === message.guildId);
+      const isRepeatOffender = userWarnings.length >= 3;
+
       if (actions.delete) {
-        await message.delete().catch(() => {});
+        if (spamMessageIdsToDelete.length > 0) {
+          // Bulk delete if possible, otherwise individual
+          const channel = message.channel;
+          if ('bulkDelete' in channel) {
+            // Remove duplicates from the ID list
+            const uniqueIds = Array.from(new Set(spamMessageIdsToDelete));
+            await (channel as any).bulkDelete(uniqueIds).catch(async (bulkErr: any) => {
+              logSystem("WARN", "Bulk delete failed, attempting individual delete", bulkErr.message);
+              // Fallback to individual for each ID
+              for (const idToDel of uniqueIds) {
+                try {
+                  const msgToDel = await channel.messages.fetch(idToDel).catch(() => null);
+                  if (msgToDel) await msgToDel.delete().catch(() => {});
+                } catch (e) {}
+              }
+            });
+          } else {
+            await message.delete().catch(() => {});
+          }
+        } else {
+          await message.delete().catch(() => {});
+        }
       }
 
-      if (actions.warn) {
-        await issueWarning(message.guild, member, { id: "SENTINEL-AI", tag: "SENTINEL-AI" }, `[Auto-Mod] ${reason}`);
+      if (actions.warn || isRepeatOffender) {
+        await issueWarning(message.guild, member, { id: "SENTINEL-AI", tag: "SENTINEL-AI" }, `[Auto-Mod] ${reason} ${isRepeatOffender ? '(Escalated Due to History)' : ''}`);
       }
 
-      if (actions.mute && member.manageable) {
-        const durationMs = settings.muteDurationMs || 10 * 60 * 1000;
-        await member.timeout(durationMs, `[Auto-Mod] ${reason}`);
-        
-        const h = Math.floor(durationMs / 3600000);
-        const m = Math.floor((durationMs % 3600000) / 60000);
-        const s = Math.floor((durationMs % 60000) / 1000);
-        const timeStr = `${h > 0 ? `${h}h ` : ""}${m > 0 ? `${m}m ` : ""}${s > 0 ? `${s}s` : ""}`.trim();
-
-        logAction({
-          action: "MUTE",
-          targetId: member.id,
-          targetTag: member.user.tag,
-          guildId: message.guild.id,
-          reason: `[Auto-Mod] ${reason} (${timeStr})`,
-          moderatorId: "SENTINEL-AI",
-          moderatorTag: "SENTINEL-AI"
-        });
+      if (isRepeatOffender && member.manageable) {
+          const escalationDuration = (guildSettings.muteDurationMs || 600000) * 2;
+          await member.timeout(escalationDuration, `[Auto-Mod] Repeat Offenses: ${reason}`);
+          logSystem("SUCCESS", `Escalated Mute: ${member.user.tag} for ${escalationDuration / 60000}m`);
+      } else if (actions.mute && member.manageable) {
+        const muteDur = actions.muteDurationMs || guildSettings.muteDurationMs || 600000;
+        await member.timeout(muteDur, `[Auto-Mod] ${reason}`);
+        logSystem("SUCCESS", `Auto-Mod Mute: ${member.user.tag} for ${muteDur / 60000}m`);
       }
 
       if (actions.kick && member.kickable) {
         await member.kick(`[Auto-Mod] ${reason}`);
-        logSystem("SUCCESS", `Auto-Mod Kicked ${member.user.tag} for ${reason}`);
-        logAction({
-          action: "KICK",
-          targetId: member.id,
-          targetTag: member.user.tag,
-          guildId: message.guild.id,
-          reason: `[Auto-Mod] ${reason}`,
-          moderatorId: "SENTINEL-AI",
-          moderatorTag: "SENTINEL-AI"
-        });
       }
 
       if (actions.ban && member.bannable) {
         await member.ban({ reason: `[Auto-Mod] ${reason}` });
-        logSystem("SUCCESS", `Auto-Mod Banned ${member.user.tag} for ${reason}`);
-        logAction({
-          action: "BAN",
-          targetId: member.id,
-          targetTag: member.user.tag,
-          guildId: message.guild.id,
-          reason: `[Auto-Mod] ${reason}`,
-          moderatorId: "SENTINEL-AI",
-          moderatorTag: "SENTINEL-AI"
-        });
       }
 
-      console.log(`Auto-Mod: ${reason} Actions: ${JSON.stringify(actions)} User: ${message.author.tag}`);
     } catch (err) {
       console.error("Auto-mod action failed:", err);
     }
@@ -516,9 +801,15 @@ async function registerCommands() {
   }
 }
 
-client.on("ready", () => {
+client.on("ready", async () => {
   logSystem("SUCCESS", `Connected! Authenticated as ${client.user?.tag}`);
   registerCommands();
+  
+  // Fetch members for all guilds
+  for (const guild of client.guilds.cache.values()) {
+      logSystem("INFO", `Fetching members for ${guild.name}...`);
+      await guild.members.fetch().catch(err => logSystem("ERROR", `Failed to fetch members for ${guild.name}: ${err.message}`));
+  }
 });
 
 client.on("interactionCreate", async (interaction) => {
@@ -774,7 +1065,7 @@ client.on("interactionCreate", async (interaction) => {
 
       const helpEmbed = new EmbedBuilder()
         .setTitle("🛡️ Cracked Tier Command Manifest")
-        .setDescription("List of all active operational protocols.")
+        .setDescription("List of all active server roles and their details.")
         .setColor(0x00ff88)
         .addFields(
           { name: "/stats", value: "View global bot statistics" },
@@ -853,7 +1144,7 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.editReply({ content: statusMsg });
       } catch (err: any) {
         logSystem("ERROR", `Critical: Purge failed: ${err.message}`);
-        await interaction.editReply({ content: `Critical Error: Failed to execute purge protocol. Details: ${err.message}` });
+        await interaction.editReply({ content: `Critical Error: Failed to delete role. Details: ${err.message}` });
       }
     }
 
@@ -955,45 +1246,71 @@ client.on("interactionCreate", async (interaction) => {
 
 async function startServer() {
   // API Routes
-  app.get("/api/status", (req, res) => {
-    const db = getDB();
-    const guildStats = new Map<string, { count: number, commands: Map<string, number> }>();
-    
-    db.auditLog.forEach((log: any) => {
-      if (!log.guildId) return;
-      if (!guildStats.has(log.guildId)) {
-        guildStats.set(log.guildId, { count: 0, commands: new Map() });
-      }
-      const stats = guildStats.get(log.guildId)!;
-      stats.count++;
-      stats.commands.set(log.action, (stats.commands.get(log.action) || 0) + 1);
-    });
-
-    res.json({
-      online: client.isReady(),
-      uptime: client.uptime,
-      guilds: client.guilds.cache.size,
-      guildList: client.guilds.cache.map(g => {
-        const stats = guildStats.get(g.id);
-        let topCommand = "N/A";
-        if (stats && stats.commands.size > 0) {
-          topCommand = Array.from(stats.commands.entries())
-            .sort((a, b) => b[1] - a[1])[0][0];
+  app.get("/api/status", async (req, res) => {
+    try {
+      const db = getDB();
+      const guildStats = new Map<string, { count: number, commands: Map<string, number> }>();
+      
+      db.auditLog.forEach((log: any) => {
+        if (!log.guildId) return;
+        if (!guildStats.has(log.guildId)) {
+          guildStats.set(log.guildId, { count: 0, commands: new Map() });
         }
+        const stats = guildStats.get(log.guildId)!;
+        stats.count++;
+        if (log.action) {
+          stats.commands.set(log.action, (stats.commands.get(log.action) || 0) + 1);
+        }
+      });
 
-        return {
-          id: g.id,
-          name: g.name,
-          memberCount: g.memberCount,
-          commandCount: stats?.count || 0,
-          topCommand: topCommand,
-          icon: g.iconURL()
-        };
-      }),
-      botName: client.user?.tag || "Offline",
-      configMissing: !process.env.DISCORD_TOKEN || !process.env.DISCORD_CLIENT_ID,
-      clientId: process.env.DISCORD_CLIENT_ID
-    });
+      const guildList = await Promise.all(client.guilds.cache.map(async (g) => {
+        try {
+          const stats = guildStats.get(g.id);
+          let topCommand = "N/A";
+          if (stats && stats.commands.size > 0) {
+            topCommand = Array.from(stats.commands.entries())
+              .sort((a, b) => b[1] - a[1])[0][0];
+          }
+
+          // Use cache
+          const members = g.members.cache;
+
+          return {
+            id: g.id,
+            name: g.name,
+            memberCount: g.memberCount,
+            botCount: members.filter(m => m.user?.bot).size,
+            commandCount: stats?.count || 0,
+            topCommand: topCommand,
+            icon: g.iconURL()
+          };
+        } catch (innerErr: any) {
+          console.error(`Error processing stats for guild ${g.id}:`, innerErr);
+          return {
+            id: g.id,
+            name: g.name,
+            memberCount: g.memberCount,
+            botCount: 0,
+            commandCount: 0,
+            topCommand: "N/A",
+            icon: null
+          };
+        }
+      }));
+
+      res.json({
+        online: client.isReady(),
+        uptime: client.uptime,
+        guilds: client.guilds.cache.size,
+        guildList: guildList,
+        botName: client.user?.tag || "Offline",
+        configMissing: !process.env.DISCORD_TOKEN || !process.env.DISCORD_CLIENT_ID,
+        clientId: process.env.DISCORD_CLIENT_ID
+      });
+    } catch (error: any) {
+      console.error("Critical error in /api/status:", error);
+      res.status(500).json({ error: "Internal Server Error", message: error.message });
+    }
   });
 
   app.get("/api/guild/:guildId/members", async (req, res) => {
@@ -1009,9 +1326,9 @@ async function startServer() {
       const members = await guild.members.fetch({ limit: 50 });
       res.json(members.map(m => ({
         id: m.id,
-        username: m.user.username,
+        username: m.user?.username || "Unknown",
         displayName: m.displayName,
-        avatar: m.user.displayAvatarURL(),
+        avatar: m.user?.displayAvatarURL() || "",
         roles: m.roles.cache.map(r => ({ id: r.id, name: r.name, color: r.hexColor })).filter(r => r.name !== "@everyone"),
         joinedAt: m.joinedAt
       })));
@@ -1028,20 +1345,231 @@ async function startServer() {
 
     try {
       const botMember = await guild.members.fetch(client.user!.id);
+      const isAdmin = botMember.permissions.has(PermissionFlagsBits.Administrator);
+      const hasManageRoles = botMember.permissions.has(PermissionFlagsBits.ManageRoles);
+      const hasModerateMembers = botMember.permissions.has(PermissionFlagsBits.ModerateMembers);
+      const hasKickMembers = botMember.permissions.has(PermissionFlagsBits.KickMembers);
+      const hasBanMembers = botMember.permissions.has(PermissionFlagsBits.BanMembers);
+
+      const botHighestRole = botMember.roles.highest;
+
       const roles = guild.roles.cache
-        .filter(r => r.name !== "@everyone" && r.comparePositionTo(botMember.roles.highest) < 0 && !r.managed)
-        .map(r => ({
-          id: r.id,
-          name: r.name,
-          color: r.hexColor,
-          position: r.position
-        }))
+        .map(r => {
+          const isBelowBot = r.comparePositionTo(botMember.roles.highest) < 0;
+          const isEveryone = r.name === "@everyone";
+          return {
+            id: r.id,
+            name: r.name,
+            color: r.hexColor,
+            position: r.position,
+            permissions: r.permissions.bitfield.toString(),
+            hoist: r.hoist,
+            mentionable: r.mentionable,
+            managed: r.managed,
+            memberCount: r.members.size,
+            editable: r.editable && isBelowBot && !isEveryone,
+            canManagePermissions: (isAdmin || hasManageRoles) && (isBelowBot || isEveryone),
+            isBelowBot,
+            isEveryone,
+            botHasPermission: isAdmin || hasManageRoles,
+            isBotRole: r.id === botHighestRole.id
+          };
+        })
         .sort((a, b) => b.position - a.position);
 
-      res.json(roles);
+      res.json({ roles, isAdmin, hasManageRoles, hasModerateMembers, hasKickMembers, hasBanMembers, botHighestRole: { id: botHighestRole.id, name: botHighestRole.name, position: botHighestRole.position } });
     } catch (error) {
       console.error("Error fetching roles:", error);
       res.status(500).json({ error: "Failed to fetch roles" });
+    }
+  });
+
+  app.post("/api/guild/:guildId/role", async (req, res) => {
+    const { guildId } = req.params;
+    const { name } = req.body;
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+    try {
+      const botMember = await guild.members.fetch(client.user!.id);
+      if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles) && !botMember.permissions.has(PermissionFlagsBits.Administrator)) {
+        return res.status(403).json({ error: "Bot lacks 'Manage Roles' permission." });
+      }
+
+      const role = await guild.roles.create({
+        name: name || "New Role",
+        reason: "Created via Dashboard",
+        color: "#999999"
+      });
+      
+      logSystem("SUCCESS", `Created new role ${role.name} in ${guild.name}`);
+      res.json({ success: true, role: { id: role.id, name: role.name } });
+    } catch (error: any) {
+      console.error("Role creation error:", error);
+      res.status(500).json({ error: error.message || "Failed to create role." });
+    }
+  });
+
+  app.delete("/api/guild/:guildId/role/:roleId", async (req, res) => {
+    const { guildId, roleId } = req.params;
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+    try {
+      const botMember = await guild.members.fetch(client.user!.id);
+      if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles) && !botMember.permissions.has(PermissionFlagsBits.Administrator)) {
+        return res.status(403).json({ error: "Bot lacks 'Manage Roles' permission." });
+      }
+
+      const role = guild.roles.cache.get(roleId);
+      if (!role) return res.status(404).json({ error: "Role not found" });
+
+      if (role.comparePositionTo(botMember.roles.highest) >= 0) {
+        return res.status(403).json({ error: "Hierarchy restriction: Cannot delete roles above the bot's rank." });
+      }
+
+      await role.delete("Deleted via Dashboard");
+      logSystem("SUCCESS", `Deleted role ${role.name} from ${guild.name}`);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Role deletion error:", error);
+      res.status(500).json({ error: error.message || "Failed to delete role." });
+    }
+  });
+
+  app.patch("/api/guild/:guildId/role/:roleId", async (req, res) => {
+    const { guildId, roleId } = req.params;
+    const { name, color, position, hoist, mentionable, permissions } = req.body;
+    
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+    try {
+      const botMember = await guild.members.fetch(client.user!.id);
+      const isAdmin = botMember.permissions.has(PermissionFlagsBits.Administrator);
+      const hasManageRoles = botMember.permissions.has(PermissionFlagsBits.ManageRoles);
+
+      if (!isAdmin && !hasManageRoles) {
+        return res.status(403).json({ error: "Bot lacks 'Manage Roles' or 'Administrator' permission." });
+      }
+
+      const role = guild.roles.cache.get(roleId);
+      if (!role) return res.status(404).json({ error: "Role not found" });
+
+      const isEveryone = role.name === "@everyone";
+
+      if (role.comparePositionTo(botMember.roles.highest) >= 0 && !isEveryone) {
+        return res.status(403).json({ 
+          error: "Hierarchy Restriction: This role is higher than or equal to the bot's own highest role. Move the bot's role up in Discord settings to manage this rank." 
+        });
+      }
+      
+      if (!role.editable && !isEveryone) {
+        return res.status(403).json({ error: "This role is protected or managed by an external system and cannot be modified." });
+      }
+
+      const updates: any = {};
+      if (name !== undefined && !isEveryone) updates.name = name;
+      if (color !== undefined && !isEveryone) updates.color = color;
+      if (hoist !== undefined && !isEveryone) updates.hoist = hoist;
+      if (mentionable !== undefined && !isEveryone) updates.mentionable = mentionable;
+      if (permissions !== undefined) updates.permissions = BigInt(permissions);
+      
+      if (position !== undefined && !isEveryone) {
+        await role.setPosition(position);
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await role.edit(updates);
+      }
+
+      logSystem("SUCCESS", `Reconfigured role ${role.name} in ${guild.name}`);
+      res.json({ 
+        success: true, 
+        role: { 
+          id: role.id, 
+          name: role.name, 
+          color: role.hexColor, 
+          position: role.position, 
+          permissions: role.permissions.bitfield.toString() 
+        } 
+      });
+    } catch (error) {
+      console.error("Role update error:", error);
+      res.status(500).json({ error: "Role reconfiguration failed." });
+    }
+  });
+
+  app.post("/api/guild/:guildId/roles/positions", async (req, res) => {
+    const { guildId } = req.params;
+    const { positions } = req.body; // Array of { id: string, position: number }
+    
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+    try {
+      const botMember = await guild.members.fetch(client.user!.id);
+      if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles) && !botMember.permissions.has(PermissionFlagsBits.Administrator)) {
+        return res.status(403).json({ error: "Bot lacks permissions." });
+      }
+
+      await guild.roles.setPositions(positions);
+      logSystem("SUCCESS", `Bulk reordered positions for ${positions.length} roles in ${guild.name}`);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Bulk role position update error:", error);
+      res.status(500).json({ error: error.message || "Failed to update role positions." });
+    }
+  });
+
+  app.get("/api/guild/:guildId/punishments", async (req, res) => {
+    const { guildId } = req.params;
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+    try {
+      // Fetch Bans
+      const banFetch = await guild.bans.fetch().catch(() => new Map());
+      const banlist = Array.from(banFetch.values());
+      
+      const formattedBans = banlist.map((b: any) => ({
+        id: b.user.id,
+        type: 'BAN',
+        user: {
+          id: b.user.id,
+          tag: b.user.tag,
+          username: b.user.username,
+          avatar: b.user.displayAvatarURL()
+        },
+        reason: b.reason || "No reason provided",
+        timestamp: null
+      }));
+
+      // Fetch Timeouts (Mutes)
+      // Note: fetching all members can be slow on very large guilds.
+      const allMembers = await guild.members.fetch().catch(() => new Map());
+      const timeouts = Array.from(allMembers.values()).filter((m: any) => m.communicationDisabledUntil && m.communicationDisabledUntil > new Date());
+      
+      const formattedTimeouts = timeouts.map((m: any) => ({
+        id: m.id,
+        type: 'TIMEOUT',
+        user: {
+          id: m.user.id,
+          tag: m.user.tag,
+          username: m.user.username,
+          avatar: m.user.displayAvatarURL()
+        },
+        reason: "Active Timeout",
+        expiry: m.communicationDisabledUntil
+      }));
+
+      res.json({
+        bans: formattedBans,
+        timeouts: formattedTimeouts
+      });
+    } catch (error) {
+      console.error("Error fetching punishments:", error);
+      res.status(500).json({ error: "Failed to fetch punishments." });
     }
   });
 
@@ -1260,16 +1788,99 @@ async function startServer() {
     }
   });
 
-  app.get("/api/automod", (req, res) => {
+  app.get("/api/automod/:guildId", (req, res) => {
+    const { guildId } = req.params;
     const db = getDB();
-    res.json(db.autoMod);
+    if (!db.autoMod) db.autoMod = {};
+    
+    // Merge with defaults to ensure all fields like muteDurationMs are present
+    const settings = { ...DEFAULT_AUTOMOD_SETTINGS, ...(db.autoMod[guildId] || {}) };
+    res.json(settings);
   });
 
-  app.post("/api/automod", (req, res) => {
+  app.post("/api/automod/:guildId", (req, res) => {
+    const { guildId } = req.params;
     const db = getDB();
-    db.autoMod = { ...db.autoMod, ...req.body };
+    if (!db.autoMod) db.autoMod = {};
+    db.autoMod[guildId] = { ...(db.autoMod[guildId] || {}), ...req.body };
     saveDB(db);
-    res.json({ success: true, settings: db.autoMod });
+    res.json({ success: true, settings: db.autoMod[guildId] });
+  });
+
+  app.get("/api/server-settings/:guildId", (req, res) => {
+    const { guildId } = req.params;
+    const db = getDB();
+    
+    if (!db.serverSettings) db.serverSettings = {};
+    
+    // Migration
+    if (!db.serverSettings[guildId] && db.serverSettings.autoRoleId !== undefined) {
+      db.serverSettings = { [guildId]: { ...db.serverSettings } };
+      saveDB(db);
+    }
+    
+    res.json(db.serverSettings[guildId] || { autoRoleId: null, botRoleId: null, autoRoleEnabled: false, botRoleEnabled: false });
+  });
+
+  app.post("/api/server-settings/:guildId", (req, res) => {
+    const { guildId } = req.params;
+    const db = getDB();
+    
+    if (!db.serverSettings) db.serverSettings = {};
+    
+    db.serverSettings[guildId] = { ...(db.serverSettings[guildId] || {}), ...req.body };
+    saveDB(db);
+    res.json({ success: true, settings: db.serverSettings[guildId] });
+  });
+
+  app.post("/api/guild/:guildId/apply-auto-roles", async (req, res) => {
+    const { guildId } = req.params;
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+    const db = getDB();
+    const settings = db.serverSettings;
+    if (!settings) return res.status(400).json({ error: "No settings found" });
+
+    try {
+      const members = await guild.members.fetch();
+      let assignedCount = 0;
+      for (const member of members.values()) {
+        if (member.user.bot) {
+          if (settings.botRoleEnabled && settings.botRoleId) {
+            const role = guild.roles.cache.get(settings.botRoleId);
+            if (role && !member.roles.cache.has(role.id)) {
+              await member.roles.add(role);
+              assignedCount++;
+              await delay(1000); // 1 second delay between role additions
+            }
+          }
+        } else {
+          if (settings.autoRoleEnabled && settings.autoRoleId) {
+            const role = guild.roles.cache.get(settings.autoRoleId);
+            if (role && !member.roles.cache.has(role.id)) {
+              await member.roles.add(role);
+              assignedCount++;
+              await delay(1000); // 1 second delay between role additions
+            }
+          }
+        }
+      }
+      res.json({ success: true, count: assignedCount });
+    } catch (err: any) {
+      console.error("Apply auto-roles error:", err);
+      res.status(500).json({ error: err.message || "Failed to apply auto-roles" });
+    }
+  });
+
+  app.get("/api/system-status", (req, res) => {
+    const aiActive = true; // Feature is enabled (with local fallback if key is missing)
+    res.json({
+      online: true,
+      aiActive: aiActive,
+      discordReady: client.isReady(),
+      uptime: process.uptime()
+    });
   });
 
   app.get("/api/users", (req, res) => {

@@ -25,11 +25,18 @@ import {
   Database,
   Lock,
   Eye,
+  Layers,
+  ChevronUp,
+  ChevronDown,
   MessageSquareOff,
   History,
-  Zap
+  Zap,
+  Plus,
+  Trash2,
+  GripVertical,
+  Save
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, Reorder } from "motion/react";
 
 const logo = new URL("./assets/images/regenerated_image_1778939583788.png", import.meta.url).href;
 
@@ -53,6 +60,7 @@ interface Status {
   botName: string;
   configMissing: boolean;
   clientId?: string;
+  aiActive?: boolean;
 }
 
 export default function App() {
@@ -78,79 +86,176 @@ export default function App() {
   const [systemLogs, setSystemLogs] = useState<any[]>([]);
   const [commandsList, setCommandsList] = useState<any[]>([]);
   const [staffLog, setStaffLog] = useState<any[]>([]);
-  const [bans, setBans] = useState<any[]>([]);
+  const [punishments, setPunishments] = useState<{ bans: any[], timeouts: any[] }>({ bans: [], timeouts: [] });
   const [availableRoles, setAvailableRoles] = useState<any[]>([]);
+  const [lastFetchedOrder, setLastFetchedOrder] = useState<string[]>([]);
+  const [botHighestRole, setBotHighestRole] = useState<any>(null);
+  const [botPerms, setBotPerms] = useState({ isAdmin: false, hasManageRoles: false, hasModerateMembers: false, hasKickMembers: false, hasBanMembers: false });
+  const [serverSettings, setServerSettings] = useState<any>(null);
+  const [savingServerSettings, setSavingServerSettings] = useState(false);
+  const [expandedRoleId, setExpandedRoleId] = useState<string | null>(null);
   const [selectedRoleId, setSelectedRoleId] = useState("");
+
+  const PERMISSIONS = [
+    { name: "Administrator", bit: 8n, category: "Administrative" },
+    { name: "Manage Server", bit: 32n, category: "Administrative" },
+    { name: "Manage Roles", bit: 268435456n, category: "Administrative" },
+    { name: "Manage Channels", bit: 16n, category: "Administrative" },
+    { name: "View Audit Log", bit: 128n, category: "Administrative" },
+    { name: "Manage Webhooks", bit: 536870912n, category: "Administrative" },
+    { name: "Kick Members", bit: 2n, category: "Moderation" },
+    { name: "Ban Members", bit: 4n, category: "Moderation" },
+    { name: "Timeout Members", bit: 1099511627776n, category: "Moderation" },
+    { name: "Manage Messages", bit: 8192n, category: "Moderation" },
+    { name: "Manage Nicknames", bit: 134217728n, category: "Moderation" },
+    { name: "View Channel", bit: 1024n, category: "General" },
+    { name: "Send Messages", bit: 2048n, category: "General" },
+    { name: "Embed Links", bit: 16384n, category: "General" },
+    { name: "Attach Files", bit: 32768n, category: "General" },
+    { name: "Add Reactions", bit: 64n, category: "General" },
+    { name: "Use External Emojis", bit: 262144n, category: "General" },
+    { name: "Mention Everyone", bit: 131072n, category: "General" },
+    { name: "Manage Expressions", bit: 1073741824n, category: "General" },
+    { name: "Mute Members", bit: 4194304n, category: "Staff" },
+    { name: "Deafen Members", bit: 8388608n, category: "Staff" },
+    { name: "Move Members", bit: 16777216n, category: "Staff" },
+  ];
+
+  const hasPermission = (bitfield: string, bit: bigint) => {
+    return (BigInt(bitfield) & bit) === bit;
+  };
+
+  const togglePermission = async (role: any, bit: bigint) => {
+    if (!role.canManagePermissions) return;
+    const currentBits = BigInt(role.permissions);
+    const newBits = hasPermission(role.permissions, bit) ? currentBits ^ bit : currentBits | bit;
+    
+    // Optimistic update
+    setAvailableRoles(prev => prev.map(r => r.id === role.id ? { ...r, permissions: newBits.toString() } : r));
+
+    try {
+      await fetch(`/api/guild/${selectedGuildId}/role/${role.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ permissions: newBits.toString() })
+      });
+    } catch (e) {
+      console.error("Failed to sync permission", e);
+      fetchRoles(); // Rollback
+    }
+  };
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [loadingBans, setLoadingBans] = useState(false);
   const [loadingRoles, setLoadingRoles] = useState(false);
   const [banReason, setBanReason] = useState("");
 
+  useEffect(() => {
+    if (selectedGuildId) {
+      fetch(`/api/server-settings/${selectedGuildId}`)
+        .then(res => {
+          if (!res.ok) throw new Error(`Status ${res.status}`);
+          return res.json();
+        })
+        .then(data => setServerSettings(data))
+        .catch(err => console.error(`Failed to fetch settings for ${selectedGuildId}:`, err));
+    }
+  }, [selectedGuildId]);
+
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [statusRes, statsRes, autoModRes] = await Promise.all([
-        fetch("/api/status"),
-        fetch("/api/stats"),
-        fetch("/api/automod")
+      const fetchJson = async (url: string) => {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) {
+            console.warn(`Fetch failed for ${url}: ${res.status}`);
+            return {};
+          }
+          const contentType = res.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            return await res.json();
+          }
+          console.warn(`Non-JSON response for ${url}: ${contentType}`);
+          return {};
+        } catch (e) {
+          console.error(`Error fetching ${url}:`, e);
+          return {};
+        }
+      };
+
+      const [statusData, statsData, systemStatusData] = await Promise.all([
+        fetchJson("/api/status"),
+        fetchJson("/api/stats"),
+        fetchJson("/api/system-status")
       ]);
-      const statusData = await statusRes.json();
-      const statsData = await statsRes.json();
-      const autoModData = await autoModRes.json();
       
-      setStatus(statusData);
-      setStats(statsData);
+      if (statusData && Object.keys(statusData).length > 0) {
+        setStatus({ ...statusData, aiActive: systemStatusData.aiActive });
+      }
+      if (statsData && Object.keys(statsData).length > 0) {
+        setStats(statsData);
+      }
       
-      // Only update AutoMod if we haven't made local changes
-      if (!isDirty) {
-        setAutoModSettings(autoModData);
+      // Fetch server settings and automod per guild if selected
+      if (selectedGuildId) {
+        const [serverSettingsData, autoModData] = await Promise.all([
+          fetchJson(`/api/server-settings/${selectedGuildId}`),
+          fetchJson(`/api/automod/${selectedGuildId}`)
+        ]);
+
+        if (serverSettingsData && Object.keys(serverSettingsData).length > 0) {
+          setServerSettings(serverSettingsData);
+        }
+        
+        // Only update AutoMod if we haven't made local changes
+        if (!isDirty && autoModData && Object.keys(autoModData).length > 0) {
+          setAutoModSettings(autoModData);
+        }
       }
 
       // Also refresh tab-specific data if applicable
       if (activeTab === "database") {
         setLoadingDB(true);
-        const res = await fetch("/api/users");
-        const data = await res.json();
-        setUserDB(data);
+        const data = await fetchJson("/api/users");
+        if (data) setUserDB(data);
         setLoadingDB(false);
       } else if (activeTab === "audit") {
         setLoadingLogs(true);
-        const res = await fetch("/api/audit");
-        const data = await res.json();
-        setAuditLog(data);
+        const data = await fetchJson("/api/audit");
+        if (Array.isArray(data)) setAuditLog(data);
         setLoadingLogs(false);
       } else if (activeTab === "commands") {
         setLoadingLogs(true);
-        const res = await fetch("/api/commands");
-        const data = await res.json();
-        setCommandsList(data);
+        const data = await fetchJson("/api/commands");
+        if (Array.isArray(data)) setCommandsList(data);
         setLoadingLogs(false);
       } else if (activeTab === "system") {
         setLoadingLogs(true);
-        const res = await fetch("/api/system-logs");
-        const data = await res.json();
-        setSystemLogs(data);
+        const data = await fetchJson("/api/system-logs");
+        if (Array.isArray(data)) setSystemLogs(data);
         setLoadingLogs(false);
       } else if (activeTab === "staff") {
         setLoadingLogs(true);
-        const res = await fetch("/api/staff");
-        const data = await res.json();
-        setStaffLog(data);
+        const data = await fetchJson("/api/staff");
+        if (data) setStaffLog(data);
         setLoadingLogs(false);
       } else if (activeTab === "bans") {
         if (selectedGuildId) {
           setLoadingBans(true);
-          const res = await fetch(`/api/guild/${selectedGuildId}/bans`);
-          const data = await res.json();
-          if (Array.isArray(data)) setBans(data);
+          const data = await fetchJson(`/api/guild/${selectedGuildId}/punishments`);
+          if (data && !data.error) {
+            setPunishments({ 
+              bans: Array.isArray(data.bans) ? data.bans : [], 
+              timeouts: Array.isArray(data.timeouts) ? data.timeouts : [] 
+            });
+          }
           setLoadingBans(false);
         }
       }
       
       if (selectedGuildId) {
         setLoadingMembers(true);
-        const res = await fetch(`/api/guild/${selectedGuildId}/members`);
-        const data = await res.json();
+        const data = await fetchJson(`/api/guild/${selectedGuildId}/members`);
         if (Array.isArray(data)) setMembers(data);
         setLoadingMembers(false);
       }
@@ -194,34 +299,47 @@ export default function App() {
     fetchMembers();
   }, [selectedGuildId]);
 
-  useEffect(() => {
-    const fetchRoles = async () => {
-      if (!selectedGuildId) {
+  const fetchRoles = async () => {
+    if (!selectedGuildId) {
+      setAvailableRoles([]);
+      return;
+    }
+    setLoadingRoles(true);
+    try {
+      const res = await fetch(`/api/guild/${selectedGuildId}/roles`);
+      const data = await res.json();
+      if (data.roles && Array.isArray(data.roles)) {
+        setAvailableRoles(data.roles);
+        setLastFetchedOrder(data.roles.map((r: any) => r.id));
+        setBotHighestRole(data.botHighestRole);
+        setBotPerms({ 
+          isAdmin: data.isAdmin, 
+          hasManageRoles: data.hasManageRoles, 
+          hasModerateMembers: data.hasModerateMembers,
+          hasKickMembers: data.hasKickMembers,
+          hasBanMembers: data.hasBanMembers
+        });
+      } else if (Array.isArray(data)) {
+        setAvailableRoles(data);
+        setLastFetchedOrder(data.map((r: any) => r.id));
+      } else {
         setAvailableRoles([]);
-        return;
       }
-      setLoadingRoles(true);
-      try {
-        const res = await fetch(`/api/guild/${selectedGuildId}/roles`);
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setAvailableRoles(data);
-        } else {
-          setAvailableRoles([]);
-        }
-      } catch (error) {
-        console.error("Failed to fetch roles:", error);
-        setAvailableRoles([]);
-      } finally {
-        setLoadingRoles(false);
-      }
-    };
+    } catch (error) {
+      console.error("Failed to fetch roles:", error);
+      setAvailableRoles([]);
+    } finally {
+      setLoadingRoles(false);
+    }
+  };
 
+  useEffect(() => {
     fetchRoles();
   }, [selectedGuildId]);
 
-  const handleModerate = async (action: string, roleIdOverride?: string) => {
-    if (!modifyingMember || !selectedGuildId) return;
+  const handleModerate = async (action: string, roleIdOverride?: string, targetMemberOverride?: any) => {
+    const target = targetMemberOverride || modifyingMember;
+    if (!target || !selectedGuildId) return;
     
     setModResult(null);
     try {
@@ -231,7 +349,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           guildId: selectedGuildId,
-          userId: modifyingMember.id,
+          userId: target.id,
           action,
           reason: modForm.reason,
           duration: totalSeconds,
@@ -254,12 +372,30 @@ export default function App() {
       if (res.ok && data.success) {
         setModResult({ success: true });
         fetchData(); // Refresh stats
+        fetchRoles(); // Refresh roles
+        
+        // Refresh members list and current member state
+        try {
+          const membersRes = await fetch(`/api/guild/${selectedGuildId}/members`);
+          const membersData = await membersRes.json();
+          if (Array.isArray(membersData)) {
+            setMembers(membersData);
+            if (modifyingMember) {
+              const updatedMember = membersData.find(m => m.id === modifyingMember.id);
+              if (updatedMember) {
+                setModifyingMember(updatedMember);
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Failed to refresh member sync", e);
+        }
+
         setTimeout(() => {
-          setModifyingMember(null);
           setModResult(null);
-          setModForm({ reason: "", duration: 600, h: 0, m: 10, s: 0 });
           setSelectedRoleId("");
-        }, 1500);
+          // Note: Modal remains open (modifyingMember is not cleared)
+        }, 2000);
       } else {
         setModResult({ error: data.error || "Action failed" });
       }
@@ -296,11 +432,16 @@ export default function App() {
 
       if (res.ok && data.success) {
         setBanReason("");
-        // Refresh bans
-        const bansRes = await fetch(`/api/guild/${selectedGuildId}/bans`);
-        if (bansRes.ok) {
-          const bansData = await bansRes.json();
-          if (Array.isArray(bansData)) setBans(bansData);
+        // Refresh punishments
+        const punRes = await fetch(`/api/guild/${selectedGuildId}/punishments`);
+        if (punRes.ok) {
+          const punData = await punRes.json();
+          if (punData && !punData.error) {
+            setPunishments({ 
+              bans: Array.isArray(punData.bans) ? punData.bans : [], 
+              timeouts: Array.isArray(punData.timeouts) ? punData.timeouts : [] 
+            });
+          }
         }
       } else {
         alert(data.error || "Failed to unban user");
@@ -312,14 +453,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (activeTab === "automod") {
-      fetch("/api/automod")
-        .then(res => res.json())
-        .then(data => {
-           setAutoModSettings(data);
-           setIsDirty(false);
-        });
-    }
     if (activeTab === "database") {
       setLoadingDB(true);
       fetch("/api/users")
@@ -367,20 +500,39 @@ export default function App() {
     }
     if (activeTab === "bans" && selectedGuildId) {
       setLoadingBans(true);
-      fetch(`/api/guild/${selectedGuildId}/bans`)
+      fetch(`/api/guild/${selectedGuildId}/punishments`)
         .then(res => res.json())
         .then(data => {
-          if (Array.isArray(data)) setBans(data);
+          if (data && !data.error) {
+            setPunishments({ 
+              bans: Array.isArray(data.bans) ? data.bans : [], 
+              timeouts: Array.isArray(data.timeouts) ? data.timeouts : [] 
+            });
+          }
           setLoadingBans(false);
+        });
+    }
+    if (activeTab === "server_config" && selectedGuildId) {
+      fetch(`/api/server-settings/${selectedGuildId}`)
+        .then(res => res.json())
+        .then(data => setServerSettings(data));
+    }
+    if (activeTab === "automod" && selectedGuildId) {
+      setLoading(true);
+      fetch(`/api/automod/${selectedGuildId}`)
+        .then(res => res.json())
+        .then(data => {
+          setAutoModSettings(data);
+          setLoading(false);
         });
     }
   }, [activeTab]);
 
   const saveAutoMod = async (newSettings: any) => {
-    if (!newSettings) return;
+    if (!newSettings || !selectedGuildId) return;
     setSavingAutoMod(true);
     try {
-      const res = await fetch("/api/automod", {
+      const res = await fetch(`/api/automod/${selectedGuildId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newSettings)
@@ -400,6 +552,27 @@ export default function App() {
   const updateAutoMod = (newSettings: any) => {
     setAutoModSettings(newSettings);
     setIsDirty(true);
+  };
+
+  const saveServerSettings = async (newSettings: any) => {
+    if (!newSettings) return;
+    setSavingServerSettings(true);
+    try {
+      const res = await fetch(`/api/server-settings/${selectedGuildId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newSettings)
+      });
+      const data = await res.json();
+      if (data.success) {
+        setServerSettings(data.settings);
+        alert("Settings saved!");
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingServerSettings(false);
+    }
   };
 
   const formatUptime = (ms: number | null) => {
@@ -447,6 +620,30 @@ export default function App() {
             <div className={`w-1.5 h-1.5 rounded-full ${activeTab === "servers" ? "bg-brand animate-pulse" : "bg-zinc-600"}`}></div>
             Bot Servers
           </button>
+          
+          <button 
+            onClick={() => setActiveTab("server_config")}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-all ${activeTab === "server_config" ? "bg-zinc-700/50 text-white border border-zinc-600/50 shadow-lg shadow-black/20" : "text-zinc-400 hover:bg-zinc-800"}`}
+          >
+            <div className={`w-1.5 h-1.5 rounded-full ${activeTab === "server_config" ? "bg-brand animate-pulse" : "bg-zinc-600"}`}></div>
+            Server Configuration
+          </button>
+
+          <button 
+            onClick={() => setActiveTab("automod")}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-all ${activeTab === "automod" ? "bg-zinc-700/50 text-white border border-zinc-600/50 shadow-lg shadow-black/20" : "text-zinc-400 hover:bg-zinc-800"}`}
+          >
+            <div className={`w-1.5 h-1.5 rounded-full ${activeTab === "automod" ? "bg-brand animate-pulse" : "bg-zinc-600"}`}></div>
+            Auto-Mod Settings
+          </button>
+
+          <button 
+            onClick={() => setActiveTab("roles")}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-all ${activeTab === "roles" ? "bg-zinc-700/50 text-white border border-zinc-600/50 shadow-lg shadow-black/20" : "text-zinc-400 hover:bg-zinc-800"}`}
+          >
+            <div className={`w-1.5 h-1.5 rounded-full ${activeTab === "roles" ? "bg-brand animate-pulse" : "bg-zinc-600"}`}></div>
+            Role Intel
+          </button>
 
           <button 
             onClick={() => setActiveTab("moderation")}
@@ -461,15 +658,7 @@ export default function App() {
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-all ${activeTab === "bans" ? "bg-zinc-700/50 text-white border border-zinc-600/50 shadow-lg shadow-black/20" : "text-zinc-400 hover:bg-zinc-800"}`}
           >
             <div className={`w-1.5 h-1.5 rounded-full ${activeTab === "bans" ? "bg-brand animate-pulse" : "bg-zinc-600"}`}></div>
-            Bans Management
-          </button>
-
-          <button 
-            onClick={() => setActiveTab("automod")}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-all ${activeTab === "automod" ? "bg-zinc-700/50 text-white border border-zinc-600/50 shadow-lg shadow-black/20" : "text-zinc-400 hover:bg-zinc-800"}`}
-          >
-            <div className={`w-1.5 h-1.5 rounded-full ${activeTab === "automod" ? "bg-brand animate-pulse" : "bg-zinc-600"}`}></div>
-            Auto-Mod Settings
+            Punishment Management
           </button>
 
           <button 
@@ -667,7 +856,7 @@ export default function App() {
                       </h3>
                       <div className="space-y-3">
                         <div className="flex items-center justify-between text-xs">
-                          <span className="text-zinc-400 font-medium">Anti-Spam Protocol</span>
+                          <span className="text-zinc-400 font-medium">Anti-Spam System</span>
                           <span className={autoModSettings?.antiSpam ? "text-emerald-500 font-black animate-pulse" : "text-zinc-600 font-bold opacity-50"}>
                             {autoModSettings?.antiSpam ? "ONLINE" : "OFFLINE"}
                           </span>
@@ -744,19 +933,15 @@ export default function App() {
 
                           <div className="w-full grid grid-cols-2 gap-2 mt-2">
                             <div className="bg-zinc-900/50 p-2 rounded-xl border border-zinc-700/50">
-                              <p className="text-[8px] text-zinc-500 font-black uppercase tracking-tighter mb-0.5">Population</p>
-                              <p className="text-sm font-bold text-zinc-200">{guild.memberCount.toLocaleString()}</p>
+                              <p className="text-[8px] text-zinc-500 font-black uppercase tracking-tighter mb-0.5">Members</p>
+                              <p className="text-sm font-bold text-zinc-200">{(guild.memberCount - guild.botCount).toLocaleString()}</p>
                             </div>
                             <div className="bg-zinc-900/50 p-2 rounded-xl border border-zinc-700/50">
-                              <p className="text-[8px] text-zinc-500 font-black uppercase tracking-tighter mb-0.5">Executions</p>
-                              <p className="text-sm font-bold text-brand">{guild.commandCount.toLocaleString()}</p>
+                              <p className="text-[8px] text-zinc-500 font-black uppercase tracking-tighter mb-0.5">Bots</p>
+                              <p className="text-sm font-bold text-brand">{guild.botCount.toLocaleString()}</p>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded-full group-hover:border-brand/30 transition-colors w-full justify-center">
-                            <span className="text-[9px] text-zinc-500 font-black uppercase tracking-tighter">Primary Protocol:</span>
-                            <span className="text-[10px] text-brand font-black uppercase tracking-tight">{guild.topCommand}</span>
-                          </div>
 
                           <button 
                             onClick={() => { setSelectedGuildId(guild.id); setActiveTab("moderation"); }}
@@ -764,6 +949,42 @@ export default function App() {
                           >
                             <Terminal className="w-3.5 h-3.5" />
                             Access Nerve Center
+                          </button>
+                          
+                          <div className="flex flex-col gap-1 w-full mb-2">
+                             <div className="flex items-center gap-2 px-3 py-1 bg-zinc-900 border border-zinc-700 rounded-full w-full justify-center">
+                               <span className="text-[9px] text-zinc-500 font-black uppercase tracking-tighter">Auto Member Role:</span>
+                               <span className="text-[10px] text-brand font-black uppercase tracking-tight">
+                                 {availableRoles.find(r => r.id === serverSettings?.autoRoleId)?.name || "Not Set"}
+                               </span>
+                             </div>
+                             <div className="flex items-center gap-2 px-3 py-1 bg-zinc-900 border border-zinc-700 rounded-full w-full justify-center">
+                               <span className="text-[9px] text-zinc-500 font-black uppercase tracking-tighter">Auto Bot Role:</span>
+                               <span className="text-[10px] text-emerald-500 font-black uppercase tracking-tight">
+                                 {availableRoles.find(r => r.id === serverSettings?.botRoleId)?.name || "Not Set"}
+                               </span>
+                             </div>
+                           </div>
+
+                          <button 
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(`/api/guild/${guild.id}/apply-auto-roles`, { method: "POST" });
+                                const data = await res.json();
+                                if (res.ok) {
+                                  alert(`Successfully assigned roles to ${data.count} members.`);
+                                } else {
+                                  alert(`Failed: ${data.error}`);
+                                }
+                              } catch (err) {
+                                console.error(err);
+                                alert("Failed to apply auto-roles.");
+                              }
+                            }}
+                            className="w-full py-2 bg-emerald-900/30 hover:bg-emerald-600 text-emerald-400 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 border border-emerald-800 hover:border-emerald-500"
+                          >
+                            <Layers className="w-3.5 h-3.5" />
+                            Apply Roles Now
                           </button>
                         </div>
                       ))
@@ -783,7 +1004,7 @@ export default function App() {
                   </div>
                   <div className="relative z-10 max-w-2xl">
                     <h3 className="text-2xl font-black text-white italic tracking-tight mb-2">EXPAND THE NETWORK</h3>
-                    <p className="text-zinc-400 text-sm mb-6 leading-relaxed">Connect Cracked Tier Bot to a new server cluster to initialize real-time algorithmic enforcement and security protocols.</p>
+                    <p className="text-zinc-400 text-sm mb-6 leading-relaxed">Connect Cracked Tier Bot to a new server cluster to initialize real-time algorithmic enforcement and security systems.</p>
                     <a 
                       href={`https://discord.com/api/oauth2/authorize?client_id=${status?.clientId || ''}&permissions=8&scope=bot%20applications.commands`}
                       target="_blank"
@@ -791,8 +1012,489 @@ export default function App() {
                       className="inline-flex items-center gap-3 px-8 py-4 bg-brand hover:bg-brand/90 text-white rounded-2xl text-xs font-black uppercase tracking-[0.2em] shadow-xl shadow-brand/20 transition-all hover:scale-105 active:scale-95 group"
                     >
                       <Zap className="w-4 h-4 fill-current group-hover:rotate-12 transition-transform" />
-                      Initialize Integration Protocol
+                      Initialize Integration
                     </a>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === "server_config" && (
+              <motion.div 
+                key="server_config"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                <div className="bg-zinc-800 rounded-3xl border border-zinc-700 overflow-hidden shadow-2xl">
+                  <div className="p-6 border-b border-zinc-700 bg-zinc-850 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold tracking-widest flex items-center gap-2 uppercase text-white">
+                        <Settings className="w-5 h-5 text-zinc-500" />
+                        SERVER CONFIGURATION
+                      </h3>
+                      <p className="text-[10px] text-zinc-500 font-bold uppercase mt-1">Configure automated member and bot roles</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {/* Guild Selector */}
+                      <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-1.5 focus-within:border-brand/40 transition-all">
+                        <Database className="w-3.5 h-3.5 text-zinc-500" />
+                        <select 
+                          value={selectedGuildId || ""} 
+                          onChange={(e) => setSelectedGuildId(e.target.value)}
+                          className="bg-transparent text-[10px] font-black uppercase tracking-widest text-zinc-300 border-none outline-none cursor-pointer min-w-[120px]"
+                        >
+                          {status?.guildList?.map(g => <option key={g.id} value={g.id}>{g.name}</option>) || []}
+                        </select>
+                      </div>
+
+                      <button 
+                         onClick={() => saveServerSettings(serverSettings)}
+                         disabled={savingServerSettings}
+                         className="px-6 py-2 bg-brand rounded-xl text-[10px] font-black uppercase tracking-widest text-white hover:bg-brand-hover shadow-lg shadow-brand/20 transition-all flex items-center gap-2 disabled:opacity-50"
+                      >
+                         {savingServerSettings ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                         Save Changes
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-8 space-y-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {/* Auto Role */}
+                      <div className="bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-xl bg-brand/10 border border-brand/20 flex items-center justify-center text-brand">
+                              <Users className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-black uppercase tracking-widest text-white">Auto Member Role</h4>
+                              <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter mt-0.5">Assigned to new users on join</p>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => setServerSettings({ ...serverSettings, autoRoleEnabled: !serverSettings?.autoRoleEnabled })}
+                            className={`w-12 h-6 rounded-full transition-all relative ${serverSettings?.autoRoleEnabled ? 'bg-brand' : 'bg-zinc-800 border border-zinc-700'}`}
+                          >
+                            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${serverSettings?.autoRoleEnabled ? 'left-7' : 'left-1'}`} />
+                          </button>
+                        </div>
+
+                        <div className="space-y-4 pt-4 border-t border-zinc-800">
+                           <div className="space-y-2">
+                             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 px-1">Select Member Role</label>
+                             <select 
+                               value={serverSettings?.autoRoleId || ""}
+                               onChange={(e) => setServerSettings({ ...serverSettings, autoRoleId: e.target.value })}
+                               className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs outline-none focus:border-brand transition-all appearance-none text-zinc-300"
+                             >
+                               <option value="">No Auto Role assigned</option>
+                               {availableRoles.filter(r => !r.isEveryone).map(role => (
+                                 <option key={role.id} value={role.id}>{role.name}</option>
+                               ))}
+                             </select>
+                           </div>
+                           <div className="flex items-start gap-3 p-3 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
+                              <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                              <p className="text-[10px] text-zinc-500 leading-relaxed font-medium">
+                                This role will be automatically granted to any <span className="text-emerald-500 font-bold">non-bot</span> account that joins the server. Ensure the bot's role is ranked higher than the selected role.
+                              </p>
+                           </div>
+                        </div>
+                      </div>
+
+                      {/* Bot Role */}
+                      <div className="bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500">
+                              <Database className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-black uppercase tracking-widest text-white">Auto Bot Role</h4>
+                              <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter mt-0.5">Assigned to new bots on join</p>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => setServerSettings({ ...serverSettings, botRoleEnabled: !serverSettings?.botRoleEnabled })}
+                            className={`w-12 h-6 rounded-full transition-all relative ${serverSettings?.botRoleEnabled ? 'bg-emerald-500' : 'bg-zinc-800 border border-zinc-700'}`}
+                          >
+                            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${serverSettings?.botRoleEnabled ? 'left-7' : 'left-1'}`} />
+                          </button>
+                        </div>
+
+                        <div className="space-y-4 pt-4 border-t border-zinc-800">
+                           <div className="space-y-2">
+                             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 px-1">Select Bot Role</label>
+                             <select 
+                               value={serverSettings?.botRoleId || ""}
+                               onChange={(e) => setServerSettings({ ...serverSettings, botRoleId: e.target.value })}
+                               className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs outline-none focus:border-brand transition-all appearance-none text-zinc-300"
+                             >
+                               <option value="">No Auto Role assigned</option>
+                               {availableRoles.filter(r => !r.isEveryone).map(role => (
+                                 <option key={role.id} value={role.id}>{role.name}</option>
+                               ))}
+                             </select>
+                           </div>
+                           <div className="flex items-start gap-3 p-3 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
+                              <Zap className="w-4 h-4 text-brand shrink-0 mt-0.5" />
+                              <p className="text-[10px] text-zinc-500 leading-relaxed font-medium">
+                                This role will be automatically granted to any <span className="text-brand font-bold">bot</span> account that is invited to the server. Useful for organizing high-privilege service accounts.
+                              </p>
+                           </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-8 flex items-center gap-8">
+                  <div className="w-20 h-20 rounded-2xl bg-brand/5 border border-brand/10 flex items-center justify-center text-brand shrink-0">
+                    <Shield className="w-10 h-10 opacity-20" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white mb-2 uppercase tracking-widest">Automation Integrity</h4>
+                    <p className="text-sm text-zinc-500 leading-relaxed max-w-2xl">
+                      Automated role assignment executes instantly upon a successful gateway connection for new members. If a role assignment fails, ensure the cracked tier bot has 'Manage Roles' permissions and is positioned correctly in the hierarchy.
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === "roles" && (
+              <motion.div 
+                key="roles"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-6"
+              >
+                <div className="bg-zinc-800 rounded-3xl border border-zinc-700 overflow-hidden shadow-2xl">
+                  <div className="p-6 border-b border-zinc-700 bg-zinc-850 flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                      <div>
+                        <h3 className="text-sm font-bold tracking-widest flex items-center gap-2 uppercase text-white">
+                          <Layers className="w-5 h-5 text-brand" />
+                          Role Matrix & Hierarchy
+                        </h3>
+                        <p className="text-[10px] text-zinc-500 font-bold uppercase mt-1">Full spectrum visibility and ranking control</p>
+                      </div>
+                      <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-1.5 focus-within:border-brand/40 transition-all">
+                        <Database className="w-3.5 h-3.5 text-zinc-500" />
+                        <select 
+                          value={selectedGuildId || ""} 
+                          onChange={(e) => setSelectedGuildId(e.target.value)}
+                          className="bg-transparent text-[10px] font-black uppercase tracking-widest text-zinc-300 border-none outline-none cursor-pointer min-w-[120px]"
+                        >
+                          {status?.guildList?.map(g => (
+                            <option key={g.id} value={g.id} className="bg-zinc-900 text-white">{g.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {botPerms.isAdmin && (
+                        <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+                          <Shield className="w-3 h-3 text-emerald-500" />
+                          <span className="text-[9px] text-emerald-500 font-black uppercase tracking-widest">Global Admin Override</span>
+                        </div>
+                      )}
+                      <button 
+                        onClick={async () => {
+                          const name = prompt("Enter Role Name:", "New Neural Tier");
+                          if (!name) return;
+                          await fetch(`/api/guild/${selectedGuildId}/role`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ name })
+                          });
+                          fetchRoles();
+                        }}
+                        className="px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:border-brand/40 hover:text-brand transition-all flex items-center gap-2"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Create Role
+                      </button>
+
+                      {availableRoles.some((r, i) => r.id !== lastFetchedOrder[i]) && (
+                        <button 
+                          onClick={async () => {
+                            const positions = availableRoles.map((r, i) => ({
+                              id: r.id,
+                              position: availableRoles.length - i // Inverse position for Discord logic
+                            }));
+                            
+                            try {
+                              const res = await fetch(`/api/guild/${selectedGuildId}/roles/positions`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ positions })
+                              });
+                              if (res.ok) {
+                                fetchRoles();
+                              } else {
+                                alert("Failed to save role order.");
+                              }
+                            } catch (e) {
+                              console.error(e);
+                            }
+                          }}
+                          className="px-4 py-2 bg-brand rounded-xl text-[10px] font-black uppercase tracking-widest text-white hover:bg-brand-hover shadow-lg shadow-brand/20 animate-pulse transition-all flex items-center gap-2"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          Save Order
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="p-6 bg-zinc-900/50 space-y-4">
+                    {botPerms.isAdmin && availableRoles.some(r => !r.isBelowBot && !r.isEveryone) && (
+                      <div className="p-4 bg-orange-500/5 border border-orange-500/20 rounded-2xl flex items-start gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center text-orange-500 shrink-0">
+                          <ShieldAlert className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-1">Hierarchy Restriction Bypass Required</h4>
+                          <p className="text-xs text-zinc-400 font-medium leading-relaxed">
+                            Even with <span className="text-white font-bold">Administrator</span> access, Discord prevents bots from managing roles that are <span className="text-white font-bold">ranked higher</span> than them.
+                          </p>
+                          <p className="text-[10px] text-zinc-500 font-bold uppercase mt-2 italic">Instruction: Go to Discord Server Settings &gt; Roles and drag the bot's role to the top for full access.</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-3">
+                      {loadingRoles ? (
+                        <div className="py-12 flex flex-col items-center justify-center gap-4 animate-pulse">
+                          <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin" />
+                          <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">Scanning Roles...</p>
+                        </div>
+                      ) : availableRoles.length > 0 ? (
+                        <Reorder.Group axis="y" values={availableRoles} onReorder={setAvailableRoles}>
+                          {availableRoles.map((role, index) => (
+                            <Reorder.Item 
+                              key={role.id}
+                              value={role}
+                              dragListener={role.editable && !role.isEveryone}
+                              className={`rounded-2xl border transition-all overflow-hidden mb-3 relative ${role.isBotRole ? 'bg-brand/10 border-brand/50 shadow-[0_0_20px_rgba(var(--brand),0.05)]' : role.canManagePermissions ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-900/30 border-zinc-800 border-dashed opacity-70'} ${role.isEveryone ? 'border-brand/40 bg-brand/5' : ''}`}
+                            >
+                              <div className="p-4 flex items-center justify-between group">
+                                <div className="flex items-center gap-4">
+                                  <div className="flex flex-col items-center gap-1">
+                                    <div className="flex items-center gap-2">
+                                      {role.editable && !role.isEveryone && (
+                                        <div className="cursor-grab active:cursor-grabbing text-zinc-600 hover:text-brand transition-colors">
+                                          <GripVertical className="w-4 h-4" />
+                                        </div>
+                                      )}
+                                      <span className="text-[9px] font-black text-zinc-600">RANK {role.position}</span>
+                                    </div>
+                                    <div className="flex flex-col items-center gap-1 opacity-20 group-hover:opacity-100 transition-opacity">
+                                      <button 
+                                        disabled={!role.editable || index === 0 || role.isEveryone}
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          const res = await fetch(`/api/guild/${selectedGuildId}/role/${role.id}`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ position: role.position + 1 })
+                                          });
+                                          if (res.ok) fetchRoles();
+                                        }}
+                                        className="hover:text-brand disabled:opacity-0"
+                                      >
+                                        <ChevronUp className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        disabled={!role.editable || index === availableRoles.length - 1 || role.isEveryone}
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          const res = await fetch(`/api/guild/${selectedGuildId}/role/${role.id}`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ position: role.position - 1 })
+                                          });
+                                          if (res.ok) fetchRoles();
+                                        }}
+                                        className="hover:text-brand disabled:opacity-0"
+                                      >
+                                        <ChevronDown className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div 
+                                    className="w-1.5 h-8 rounded-full" 
+                                    style={{ backgroundColor: role.color }}
+                                  />
+                                  
+                                  <div onClick={() => setExpandedRoleId(expandedRoleId === role.id ? null : role.id)} className="cursor-pointer">
+                                    <div className="flex items-center gap-2">
+                                      <input 
+                                        type="text"
+                                        defaultValue={role.name}
+                                        disabled={!role.editable || role.isEveryone}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onBlur={async (e) => {
+                                          if (e.target.value === role.name) return;
+                                          await fetch(`/api/guild/${selectedGuildId}/role/${role.id}`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ name: e.target.value })
+                                          });
+                                          fetchRoles();
+                                        }}
+                                        className={`bg-transparent text-sm font-bold border-none outline-none focus:ring-1 focus:ring-brand/50 rounded px-1 transition-all ${role.isBotRole ? 'text-brand' : 'text-white'}`}
+                                      />
+                                      {role.isBotRole && <span className="text-[8px] bg-brand text-white px-1.5 py-0.5 rounded font-black uppercase tracking-tighter shadow-lg shadow-brand/20">Active Integration</span>}
+                                      {role.isEveryone && <span className="text-[8px] bg-brand/20 text-brand px-1.5 py-0.5 rounded border border-brand/40 font-black uppercase tracking-tighter">Base Entry Detail</span>}
+                                      {role.hoist && <span className="text-[8px] bg-brand/10 text-brand px-1.5 py-0.5 rounded border border-brand/20 font-black uppercase tracking-tighter">Hoisted</span>}
+                                      {role.mentionable && <span className="text-[8px] bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 rounded border border-emerald-500/20 font-black uppercase tracking-tighter">Mentionable</span>}
+                                      <span className="text-[8px] bg-zinc-700/50 text-zinc-400 px-1.5 py-0.5 rounded border border-zinc-700 font-bold">{role.memberCount} Members</span>
+                                      {!role.isBelowBot && !role.isEveryone && role.botHasPermission && !role.isBotRole && <span className="text-[8px] bg-orange-500/10 text-orange-500 px-1.5 py-0.5 rounded border border-orange-500/20 font-black uppercase tracking-tighter">Hierarchy Lock</span>}
+                                    </div>
+                                    <p className="text-[10px] text-zinc-600 font-mono">ID: {role.id}</p>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-4">
+                                  {role.editable ? (
+                                    <div className="flex items-center gap-2">
+                                      <input 
+                                        type="color" 
+                                        defaultValue={role.color}
+                                        disabled={role.isEveryone}
+                                        onChange={async (e) => {
+                                          await fetch(`/api/guild/${selectedGuildId}/role/${role.id}`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ color: e.target.value })
+                                          });
+                                          fetchRoles();
+                                        }}
+                                        className="w-8 h-8 rounded-lg bg-transparent border-2 border-zinc-700 cursor-pointer overflow-hidden p-0"
+                                      />
+                                        <button 
+                                          onClick={() => setExpandedRoleId(expandedRoleId === role.id ? null : role.id)}
+                                          className={`p-2 rounded-lg border transition-all ${expandedRoleId === role.id ? 'bg-brand/20 border-brand/40 text-brand' : 'bg-zinc-900 border-zinc-700 text-zinc-500 hover:border-brand/40'}`}
+                                        >
+                                          <Zap className="w-4 h-4" />
+                                        </button>
+                                        <button 
+                                          onClick={async () => {
+                                            if (!confirm(`Are you sure you want to delete role ${role.name}?`)) return;
+                                            await fetch(`/api/guild/${selectedGuildId}/role/${role.id}`, { method: 'DELETE' });
+                                            fetchRoles();
+                                          }}
+                                          className="p-2 rounded-lg border border-red-500/20 bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-all shadow-lg shadow-red-500/5"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      {role.isEveryone ? (
+                                         <button 
+                                         onClick={() => setExpandedRoleId(expandedRoleId === role.id ? null : role.id)}
+                                         className={`p-2 rounded-lg border transition-all ${expandedRoleId === role.id ? 'bg-brand/20 border-brand/40 text-brand' : 'bg-zinc-900 border-zinc-700 text-zinc-500 hover:border-brand/40'}`}
+                                       >
+                                         <Zap className="w-4 h-4" />
+                                       </button>
+                                      ) : (
+                                        <>
+                                          {!role.isBelowBot && <div className="text-[8px] font-black text-orange-500 uppercase tracking-tighter px-2">Blocked by Rank</div>}
+                                          <Lock className="w-4 h-4 text-zinc-700" />
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <AnimatePresence>
+                                {expandedRoleId === role.id && (
+                                  <motion.div 
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: "auto", opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    className="bg-zinc-850 border-t border-zinc-700"
+                                  >
+                                    {/* Advanced Toggles */}
+                                    <div className="p-4 border-b border-zinc-800 bg-zinc-900/20 flex flex-wrap gap-4">
+                                      <button 
+                                        disabled={!role.canManagePermissions || role.isEveryone}
+                                        onClick={async () => {
+                                          await fetch(`/api/guild/${selectedGuildId}/role/${role.id}`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ hoist: !role.hoist })
+                                          });
+                                          fetchRoles();
+                                        }}
+                                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase border transition-all ${(role.hoist || (role.isEveryone && !role.canManagePermissions)) ? 'bg-brand/10 border-brand/40 text-brand shadow-[0_0_10px_rgba(var(--brand),0.1)]' : 'bg-zinc-900 border-zinc-800 text-zinc-600'}`}
+                                      >
+                                        {role.hoist ? 'Role Hoisting: ENABLED' : 'Role Hoisting: DISABLED'}
+                                      </button>
+                                      <button 
+                                        disabled={!role.canManagePermissions || role.isEveryone}
+                                        onClick={async () => {
+                                          await fetch(`/api/guild/${selectedGuildId}/role/${role.id}`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ mentionable: !role.mentionable })
+                                          });
+                                          fetchRoles();
+                                        }}
+                                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase border transition-all ${role.mentionable ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.1)]' : 'bg-zinc-900 border-zinc-800 text-zinc-600'}`}
+                                      >
+                                        {role.mentionable ? 'Role Mentionable: YES' : 'Role Mentionable: NO'}
+                                      </button>
+                                    </div>
+
+                                    <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                      {PERMISSIONS.map(perm => {
+                                        const active = hasPermission(role.permissions, perm.bit);
+                                        return (
+                                          <button 
+                                            key={perm.name}
+                                            disabled={!role.canManagePermissions}
+                                            onClick={() => togglePermission(role, perm.bit)}
+                                            className={`flex items-center justify-between px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${active ? 'bg-brand/10 border-brand/40 text-brand shadow-[0_0_15px_rgba(var(--brand),0.05)]' : 'bg-zinc-900 border-zinc-700 text-zinc-500 opacity-60 hover:opacity-100'}`}
+                                          >
+                                            {perm.name}
+                                            <div className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-brand animate-pulse' : 'bg-zinc-800'}`} />
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </Reorder.Item>
+                          ))}
+                        </Reorder.Group>
+                      ) : (
+                        <div className="py-24 flex flex-col items-center justify-center opacity-30 grayscale">
+                          <Layers className="w-12 h-12 mb-4" />
+                          <p className="text-xs font-bold uppercase tracking-[0.2em]">No server roles found</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-800/50 border border-zinc-700 rounded-2xl p-4 flex items-start gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center text-orange-500 shrink-0">
+                    <ShieldAlert className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h5 className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-1">Hierarchy Constraints</h5>
+                    <p className="text-xs text-zinc-500 leading-relaxed font-medium">The bot cannot modify roles that are positioned above its highest designated rank or marked as Managed. Ensure the bot is granted 'Manage Roles' permissions in Discord.</p>
                   </div>
                 </div>
               </motion.div>
@@ -927,18 +1629,33 @@ export default function App() {
                     <div>
                       <h2 className="text-xl font-bold text-white flex items-center gap-3">
                         <ShieldAlert className="w-6 h-6 text-brand" />
-                        Cracked Tier Auto-Mod Configuration
+                        Cracked Tier Advanced Auto-Mod
                       </h2>
                       <p className="text-zinc-500 text-sm mt-1">Configure real-time algorithmic enforcement policies.</p>
                     </div>
-                    <button 
-                      onClick={() => saveAutoMod(autoModSettings)}
-                      disabled={savingAutoMod || (!isDirty && autoModSettings)}
-                      className={`px-6 py-2.5 rounded-xl text-sm font-bold uppercase tracking-widest disabled:opacity-50 transition-all flex items-center gap-2 shadow-lg ${isDirty ? 'bg-emerald-600 text-white shadow-emerald-500/20 animate-pulse' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}
-                    >
-                      {savingAutoMod ? <RefreshCw className="w-4 h-4 animate-spin" /> : (isDirty ? <Clock className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />)}
-                      {savingAutoMod ? "Syncing..." : (isDirty ? "Save Changes" : "Protocol Synced")}
-                    </button>
+
+                    <div className="flex items-center gap-4">
+                      {/* Guild Selector */}
+                      <div className="flex items-center gap-2 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 focus-within:border-brand/40 transition-all">
+                        <Database className="w-4 h-4 text-zinc-500" />
+                        <select 
+                          value={selectedGuildId || ""} 
+                          onChange={(e) => setSelectedGuildId(e.target.value)}
+                          className="bg-transparent text-sm font-bold tracking-widest text-zinc-300 border-none outline-none cursor-pointer min-w-[150px]"
+                        >
+                          {status?.guildList?.map(g => <option key={g.id} value={g.id}>{g.name}</option>) || []}
+                        </select>
+                      </div>
+
+                      <button 
+                        onClick={() => saveAutoMod(autoModSettings)}
+                        disabled={savingAutoMod || (!isDirty && autoModSettings)}
+                        className={`px-6 py-2.5 rounded-xl text-sm font-bold uppercase tracking-widest disabled:opacity-50 transition-all flex items-center gap-2 shadow-lg ${isDirty ? 'bg-emerald-600 text-white shadow-emerald-500/20 animate-pulse' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}
+                      >
+                        {savingAutoMod ? <RefreshCw className="w-4 h-4 animate-spin" /> : (isDirty ? <Clock className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />)}
+                        {savingAutoMod ? "Syncing..." : (isDirty ? "Save Changes" : "Config Synced")}
+                      </button>
+                    </div>
                   </div>
 
                   {autoModSettings ? (
@@ -947,12 +1664,18 @@ export default function App() {
                         <div className="space-y-6">
                           <AutoModGroup 
                             icon={<Lock className="w-4 h-4" />}
-                            title="Anti-Spam Protocol"
+                            title="Anti-Spam System"
                             desc="Detects and mitigates rapid message clusters."
                             active={autoModSettings.antiSpam}
                             onToggle={(v) => updateAutoMod({...autoModSettings, antiSpam: v})}
                             actions={autoModSettings.antiSpamActions}
                             onActionsChange={(v) => updateAutoMod({...autoModSettings, antiSpamActions: v})}
+                            bypassRoles={autoModSettings.antiSpamBypassRoles}
+                            onBypassRolesChange={(v) => updateAutoMod({...autoModSettings, antiSpamBypassRoles: v})}
+                            bypassPermissions={autoModSettings.antiSpamBypassPermissions}
+                            onBypassPermissionsChange={(v) => updateAutoMod({...autoModSettings, antiSpamBypassPermissions: v})}
+                            availableRoles={availableRoles}
+                            botPerms={botPerms}
                           />
                           <div className="space-y-2">
                             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 px-1">Spam Threshold</label>
@@ -972,10 +1695,84 @@ export default function App() {
                             onToggle={(v) => updateAutoMod({...autoModSettings, inviteFilter: v})}
                             actions={autoModSettings.inviteFilterActions}
                             onActionsChange={(v) => updateAutoMod({...autoModSettings, inviteFilterActions: v})}
+                            bypassRoles={autoModSettings.inviteFilterBypassRoles}
+                            onBypassRolesChange={(v) => updateAutoMod({...autoModSettings, inviteFilterBypassRoles: v})}
+                            bypassPermissions={autoModSettings.inviteFilterBypassPermissions}
+                            onBypassPermissionsChange={(v) => updateAutoMod({...autoModSettings, inviteFilterBypassPermissions: v})}
+                            availableRoles={availableRoles}
+                            botPerms={botPerms}
                           />
                         </div>
 
                         <div className="space-y-6">
+                           <AutoModGroup 
+                            icon={<ShieldAlert className="w-4 h-4" />}
+                            title="Advanced Offense Detection"
+                            desc="Filters abusive, toxic, and hateful content using algorithmic heuristics and Gemini AI."
+                             active={autoModSettings.badWordFilter}
+                             onToggle={(v) => updateAutoMod({...autoModSettings, badWordFilter: v})}
+                             actions={autoModSettings.badWordFilterActions}
+                             onActionsChange={(v) => updateAutoMod({...autoModSettings, badWordFilterActions: v})}
+                             bypassRoles={autoModSettings.badWordFilterBypassRoles}
+                             onBypassRolesChange={(v) => updateAutoMod({...autoModSettings, badWordFilterBypassRoles: v})}
+                             bypassPermissions={autoModSettings.badWordFilterBypassPermissions}
+                             onBypassPermissionsChange={(v) => updateAutoMod({...autoModSettings, badWordFilterBypassPermissions: v})}
+                             availableRoles={availableRoles}
+                             botPerms={botPerms}
+                             extra={
+                               status?.aiActive ? (
+                                 <span className="text-[8px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-0.5 rounded-md font-black uppercase tracking-widest flex items-center gap-1">
+                                   <Activity className="w-2 h-2" />
+                                   AI Engine Online
+                                 </span>
+                               ) : (
+                                 <span className="text-[8px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded-md font-black uppercase tracking-widest flex items-center gap-1">
+                                   <Activity className="w-2 h-2" />
+                                   Initializing AI...
+                                 </span>
+                               )
+                             }
+                           />
+
+                           {autoModSettings.badWordFilter && (
+                             <div className="space-y-4 p-4 bg-zinc-950/50 border border-zinc-800 rounded-2xl ml-4">
+                               <div className="space-y-4 pt-2 border-t border-zinc-900">
+                                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 px-1 flex justify-between">
+                                   <span>Banned Keywords & Phrases</span>
+                                   <span className="text-brand">Advanced Detection Active</span>
+                                 </label>
+                                 <p className="text-[8px] text-zinc-600 px-1 mb-1 italic">Smart matching handles leet-speak and variations (Eng/Hi).</p>
+                                 <textarea 
+                                   value={autoModSettings.badWordList?.join("\n")}
+                                   onChange={(e) => updateAutoMod({...autoModSettings, badWordList: e.target.value.split("\n").filter(s => s !== "")})}
+                                   placeholder={"word1\nphrase 2\nslang..."}
+                                   className="w-full bg-zinc-950 border border-zinc-900 rounded-xl px-4 py-3 text-xs font-mono focus:border-brand outline-none transition-all h-24"
+                                 />
+                               </div>
+
+                               <div className="space-y-4 pt-2 border-t border-zinc-900">
+                                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 px-1">Regex Banned Patterns</label>
+                                 <p className="text-[8px] text-zinc-600 px-1 mb-1 italic">Advanced raw regex patterns (one per line). Use with caution.</p>
+                                 <textarea 
+                                   value={autoModSettings.bannedPatterns?.join("\n") || ""}
+                                   onChange={(e) => updateAutoMod({...autoModSettings, bannedPatterns: e.target.value.split("\n").filter(s => s !== "")})}
+                                   placeholder={"\\d{3}-\\d{3}-\\d{4}\n(badword|anotherword)"}
+                                   className="w-full bg-zinc-950 border border-zinc-900 rounded-xl px-4 py-3 text-xs font-mono focus:border-brand outline-none transition-all h-20 opacity-90"
+                                 />
+                               </div>
+
+                               <div className="space-y-2 pt-2 border-t border-zinc-900">
+                                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 px-1">Whitelisted Exceptions (Safe Context)</label>
+                                 <p className="text-[8px] text-zinc-600 px-1 mb-1 italic">Words here will bypass the filter (e.g. medical, technical usage).</p>
+                                 <textarea 
+                                   value={autoModSettings.badWordIgnoreList?.join("\n")}
+                                   onChange={(e) => updateAutoMod({...autoModSettings, badWordIgnoreList: e.target.value.split("\n").filter(s => s !== "")})}
+                                   placeholder={"exception1\nsafe phrase..."}
+                                   className="w-full bg-zinc-950 border border-zinc-900 rounded-xl px-4 py-3 text-xs font-mono focus:border-brand outline-none transition-all h-16 opacity-70"
+                                 />
+                               </div>
+                             </div>
+                           )}
                            <AutoModGroup 
                             icon={<UserMinus className="w-4 h-4" />}
                             title="Mention Saturation"
@@ -984,6 +1781,12 @@ export default function App() {
                             onToggle={(v) => updateAutoMod({...autoModSettings, mentionFilter: v})}
                             actions={autoModSettings.mentionFilterActions}
                             onActionsChange={(v) => updateAutoMod({...autoModSettings, mentionFilterActions: v})}
+                            bypassRoles={autoModSettings.mentionFilterBypassRoles}
+                            onBypassRolesChange={(v) => updateAutoMod({...autoModSettings, mentionFilterBypassRoles: v})}
+                            bypassPermissions={autoModSettings.mentionFilterBypassPermissions}
+                            onBypassPermissionsChange={(v) => updateAutoMod({...autoModSettings, mentionFilterBypassPermissions: v})}
+                            availableRoles={availableRoles}
+                            botPerms={botPerms}
                           />
                           <div className="space-y-4">
                             <div className="space-y-2">
@@ -997,15 +1800,16 @@ export default function App() {
                             </div>
                             
                             <div className="space-y-2">
-                              <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 px-1">Protocol Mute Duration</label>
+                              <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 px-1">Global Mute Duration Policy</label>
                               <div className="grid grid-cols-3 gap-2">
                                 <div className="space-y-1">
                                   <p className="text-[8px] text-zinc-600 font-bold uppercase px-1">Hours</p>
                                   <input 
                                     type="number" 
+                                    min="0"
                                     value={Math.floor((autoModSettings.muteDurationMs || 600000) / 3600000)}
                                     onChange={(e) => {
-                                      const h = parseInt(e.target.value) || 0;
+                                      const h = Math.max(0, parseInt(e.target.value) || 0);
                                       const m = Math.floor(((autoModSettings.muteDurationMs || 600000) % 3600000) / 60000);
                                       const s = Math.floor(((autoModSettings.muteDurationMs || 600000) % 60000) / 1000);
                                       updateAutoMod({...autoModSettings, muteDurationMs: (h * 3600000) + (m * 60000) + (s * 1000)});
@@ -1017,10 +1821,12 @@ export default function App() {
                                   <p className="text-[8px] text-zinc-600 font-bold uppercase px-1">Mins</p>
                                   <input 
                                     type="number" 
+                                    min="0"
+                                    max="59"
                                     value={Math.floor(((autoModSettings.muteDurationMs || 600000) % 3600000) / 60000)}
                                     onChange={(e) => {
                                       const h = Math.floor((autoModSettings.muteDurationMs || 600000) / 3600000);
-                                      const m = parseInt(e.target.value) || 0;
+                                      const m = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
                                       const s = Math.floor(((autoModSettings.muteDurationMs || 600000) % 60000) / 1000);
                                       updateAutoMod({...autoModSettings, muteDurationMs: (h * 3600000) + (m * 60000) + (s * 1000)});
                                     }}
@@ -1031,18 +1837,20 @@ export default function App() {
                                   <p className="text-[8px] text-zinc-600 font-bold uppercase px-1">Secs</p>
                                   <input 
                                     type="number" 
+                                    min="0"
+                                    max="59"
                                     value={Math.floor(((autoModSettings.muteDurationMs || 600000) % 60000) / 1000)}
                                     onChange={(e) => {
                                       const h = Math.floor((autoModSettings.muteDurationMs || 600000) / 3600000);
                                       const m = Math.floor(((autoModSettings.muteDurationMs || 600000) % 3600000) / 60000);
-                                      const s = parseInt(e.target.value) || 0;
+                                      const s = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
                                       updateAutoMod({...autoModSettings, muteDurationMs: (h * 3600000) + (m * 60000) + (s * 1000)});
                                     }}
                                     className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-2 py-2 text-xs focus:border-brand outline-none transition-all"
                                   />
                                 </div>
                               </div>
-                              <p className="text-[10px] text-zinc-600 px-1 italic">Applied when 'Mute' action is triggered by Auto-Mod.</p>
+                              <p className="text-[10px] text-zinc-600 px-1 italic">Shared duration for all triggered punishments.</p>
                             </div>
                           </div>
                         </div>
@@ -1058,27 +1866,80 @@ export default function App() {
                                 <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 ml-1">Enforcement Logic</p>
                                 <div className="flex flex-wrap gap-2">
                                     {(['delete', 'warn', 'kick', 'mute', 'ban'] as const).map(action => {
-                                        const isActionActive = autoModSettings.wordFilterActions && autoModSettings.wordFilterActions[action];
+                                        const isActionActive = autoModSettings.badWordFilterActions && autoModSettings.badWordFilterActions[action];
+                                        const hasPermission = action === 'mute' 
+                                          ? (botPerms.isAdmin || botPerms.hasModerateMembers)
+                                          : true;
+
                                         return (
                                           <button
                                               key={action}
+                                              disabled={!hasPermission}
                                               onClick={() => {
-                                                  const currentActions = autoModSettings.wordFilterActions || { delete: true, warn: true, mute: false, ban: false, kick: false };
+                                                  const currentActions = autoModSettings.badWordFilterActions || { delete: true, warn: true, mute: false, ban: false, kick: false };
                                                   updateAutoMod({
                                                       ...autoModSettings,
-                                                      wordFilterActions: {
+                                                      badWordFilterActions: {
                                                           ...currentActions,
                                                           [action]: !currentActions[action]
                                                       }
                                                   });
                                               }}
-                                              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${isActionActive ? 'bg-brand/10 border-brand/40 text-brand shadow-lg shadow-brand/5' : 'bg-zinc-900 border-zinc-800 text-zinc-600 opacity-60'}`}
+                                              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all flex items-center gap-2 ${isActionActive ? 'bg-brand/10 border-brand/40 text-brand shadow-lg shadow-brand/5' : 'bg-zinc-900 border-zinc-800 text-zinc-600 opacity-60'} ${!hasPermission ? 'opacity-30 cursor-not-allowed' : ''}`}
                                           >
                                               {action}
+                                              {!hasPermission && <Lock className="w-3 h-3" />}
                                           </button>
                                         );
                                     })}
                                 </div>
+
+                                {autoModSettings.badWordFilterActions?.mute && (
+                                  <div className="mt-4 pt-4 border-t border-zinc-900 space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex justify-between px-1">
+                                      <span>Token-Specific Mute Duration</span>
+                                      <Clock className="w-3 h-3 text-brand/60" />
+                                    </label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                      {[
+                                        { label: "Hrs", unit: 3600000 },
+                                        { label: "Mins", unit: 60000 },
+                                        { label: "Secs", unit: 1000 }
+                                      ].map(({ label, unit }) => (
+                                        <div key={label} className="space-y-1">
+                                          <p className="text-[8px] text-zinc-600 font-bold uppercase px-1">{label}</p>
+                                          <input 
+                                            type="number" 
+                                            min="0"
+                                            value={Math.floor((autoModSettings.badWordFilterActions.muteDurationMs || autoModSettings.muteDurationMs || 600000) / unit) % (unit === 3600000 ? 999 : 60)}
+                                            onChange={(e) => {
+                                              const currentDur = autoModSettings.badWordFilterActions.muteDurationMs || autoModSettings.muteDurationMs || 600000;
+                                              const h = Math.floor(currentDur / 3600000);
+                                              const m = Math.floor((currentDur % 3600000) / 60000);
+                                              const s = Math.floor((currentDur % 60000) / 1000);
+                                              
+                                              let newVal = parseInt(e.target.value) || 0;
+                                              let newTotal = currentDur;
+                                              
+                                              if (unit === 3600000) newTotal = (newVal * 3600000) + (m * 60000) + (s * 1000);
+                                              else if (unit === 60000) newTotal = (h * 3600000) + (newVal * 60000) + (s * 1000);
+                                              else newTotal = (h * 3600000) + (m * 60000) + (newVal * 1000);
+                                              
+                                              updateAutoMod({
+                                                ...autoModSettings,
+                                                badWordFilterActions: {
+                                                  ...autoModSettings.badWordFilterActions,
+                                                  muteDurationMs: Math.max(1000, newTotal)
+                                                }
+                                              });
+                                            }}
+                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 text-[10px] font-mono focus:border-brand outline-none transition-all"
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-2 p-6 bg-zinc-950 border border-zinc-800 rounded-3xl min-h-[120px] shadow-inner shadow-black/40">
@@ -1108,9 +1969,15 @@ export default function App() {
                       </div>
                     </div>
                   ) : (
-                    <div className="p-20 text-center flex flex-col items-center gap-4">
-                      <RefreshCw className="w-8 h-8 text-brand animate-spin" />
-                      <p className="text-zinc-500 text-xs font-bold tracking-widest uppercase">Initializing Auto-Mod Engine...</p>
+                     <div className="p-20 text-center flex flex-col items-center gap-4">
+                      {selectedGuildId ? (
+                        <>
+                          <RefreshCw className="w-8 h-8 text-brand animate-spin" />
+                          <p className="text-brand text-sm font-medium animate-pulse">Initializing Advanced Security Modules...</p>
+                        </>
+                      ) : (
+                        <p className="text-zinc-500 text-sm">Please select a server to configure Auto-Mod.</p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1507,17 +2374,28 @@ export default function App() {
                         </button>
                         <div>
                           <h3 className="text-sm font-bold tracking-widest flex items-center gap-2 uppercase text-white">
-                            <Ban className="w-5 h-5 text-rose-500" />
-                            Active Banishment Records
+                            <Gavel className="w-5 h-5 text-rose-500" />
+                            Punishment Management
                           </h3>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
+                         {/* Guild Selector */}
+                        <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 transition-all">
+                          <Database className="w-4 h-4 text-zinc-500" />
+                          <select 
+                            value={selectedGuildId || ""} 
+                            onChange={(e) => setSelectedGuildId(e.target.value)}
+                            className="bg-transparent text-xs font-bold tracking-widest text-zinc-300 border-none outline-none cursor-pointer"
+                          >
+                            {status?.guildList?.map(g => <option key={g.id} value={g.id}>{g.name}</option>) || []}
+                          </select>
+                        </div>
                          <div className="relative">
                             <Lock className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
                             <input 
                               type="text" 
-                              placeholder="Reason for unban..."
+                              placeholder="Reason for removal..."
                               value={banReason}
                               onChange={(e) => setBanReason(e.target.value)}
                               className="bg-zinc-900 border border-zinc-700 rounded-xl pl-10 pr-4 py-2 text-xs outline-none focus:border-emerald-500 w-64"
@@ -1530,32 +2408,64 @@ export default function App() {
                       {loadingBans ? (
                          <div className="p-32 text-center flex flex-col items-center gap-4">
                            <RefreshCw className="w-8 h-8 text-brand animate-spin" />
-                           <p className="text-zinc-500 text-xs font-bold tracking-widest uppercase">Retrieving Exile Data...</p>
+                           <p className="text-zinc-500 text-xs font-bold tracking-widest uppercase">Retrieving Punishment Data...</p>
                          </div>
-                      ) : bans.length > 0 ? (
-                        bans.map((ban) => (
-                          <div key={ban.user.id} className="p-6 flex items-center gap-6 hover:bg-zinc-750/50 transition-all group">
-                            <div className="w-12 h-12 rounded-full border border-zinc-700 overflow-hidden bg-zinc-900 flex-shrink-0">
-                               <img src={ban.user.avatar} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (punishments.bans.length > 0 || punishments.timeouts.length > 0) ? (
+                        <>
+                          {punishments.bans.map((ban) => (
+                            <div key={ban.user.id} className="p-6 flex items-center gap-6 hover:bg-zinc-750/50 transition-all group border-l-4 border-rose-500">
+                              <div className="w-12 h-12 rounded-full border border-zinc-700 overflow-hidden bg-zinc-900 flex-shrink-0">
+                                 <img src={ban.user.avatar} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                              </div>
+                              <div className="flex-1">
+                                 <div className="flex items-center gap-2">
+                                    <h4 className="font-bold text-zinc-200">{ban.user.tag}</h4>
+                                    <span className="text-[10px] text-zinc-600 font-mono">ID: {ban.user.id}</span>
+                                    <span className="text-[8px] bg-rose-500/10 text-rose-500 border border-rose-500/20 px-1.5 py-0.5 rounded font-black uppercase tracking-widest">Active Ban</span>
+                                 </div>
+                                 <p className="text-xs text-zinc-500 mt-1 italic">Reason: {ban.reason || "No context provided."}</p>
+                              </div>
+                              <button 
+                                onClick={() => handleUnban(ban.user.id)}
+                                className="px-6 py-2.5 bg-emerald-600/10 text-emerald-500 border border-emerald-600/20 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all shadow-lg active:scale-95 flex items-center gap-2"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                Terminate Ban
+                              </button>
                             </div>
-                            <div className="flex-1">
-                               <div className="flex items-center gap-2">
-                                  <h4 className="font-bold text-zinc-200">{ban.user.tag}</h4>
-                                  <span className="text-[10px] text-zinc-600 font-mono">ID: {ban.user.id}</span>
-                               </div>
-                               <p className="text-xs text-zinc-500 mt-1 italic">Reason: {ban.reason || "No context provided."}</p>
+                          ))}
+                          {punishments.timeouts.map((timeout) => (
+                            <div key={timeout.user.id} className="p-6 flex items-center gap-6 hover:bg-zinc-750/50 transition-all group border-l-4 border-amber-500">
+                              <div className="w-12 h-12 rounded-full border border-zinc-700 overflow-hidden bg-zinc-900 flex-shrink-0">
+                                 <img src={timeout.user.avatar} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                              </div>
+                              <div className="flex-1">
+                                 <div className="flex items-center gap-2">
+                                    <h4 className="font-bold text-zinc-200">{timeout.user.tag}</h4>
+                                    <span className="text-[10px] text-zinc-600 font-mono">ID: {timeout.user.id}</span>
+                                    <span className="text-[8px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded font-black uppercase tracking-widest">Active Timeout</span>
+                                 </div>
+                                 <div className="flex items-center gap-2 mt-1">
+                                   <Clock className="w-3 h-3 text-zinc-500" />
+                                   <p className="text-xs text-zinc-500 italic">Expires: {new Date(timeout.expiry).toLocaleString()}</p>
+                                 </div>
+                              </div>
+                              <button 
+                                onClick={async () => {
+                                  await handleModerate("unmute", undefined, timeout.user);
+                                  // Refresh after action
+                                  fetchData();
+                                }}
+                                className="px-6 py-2.5 bg-emerald-600/10 text-emerald-500 border border-emerald-600/20 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all shadow-lg active:scale-95 flex items-center gap-2"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                Revoke Timeout
+                              </button>
                             </div>
-                            <button 
-                              onClick={() => handleUnban(ban.user.id)}
-                              className="px-6 py-2.5 bg-emerald-600/10 text-emerald-500 border border-emerald-600/20 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all shadow-lg active:scale-95 flex items-center gap-2"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              Revoke Banishment
-                            </button>
-                          </div>
-                        ))
+                          ))}
+                        </>
                       ) : (
-                        <div className="py-32 text-center text-zinc-600 italic">No active bans found in this sector...</div>
+                        <div className="py-32 text-center text-zinc-600 italic">No active punishments identified in this sector...</div>
                       )}
                     </div>
                   </div>
@@ -1653,7 +2563,7 @@ export default function App() {
                     <div className="space-y-4">
                       {/* Active Roles Section */}
                       <div className="space-y-2">
-                        <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest px-1">Active Protocols (Roles)</label>
+                        <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest px-1">Active Roles</label>
                         <div className="flex flex-wrap gap-2 p-3 bg-zinc-950/50 border border-zinc-800 rounded-xl min-h-[44px]">
                           {modifyingMember.roles && modifyingMember.roles.length > 0 ? (
                             modifyingMember.roles.map((role: any) => (
@@ -1673,7 +2583,7 @@ export default function App() {
                               </button>
                             ))
                           ) : (
-                            <span className="text-[9px] text-zinc-700 font-bold uppercase italic px-1 py-1">No active role-based protocols detected...</span>
+                            <span className="text-[9px] text-zinc-700 font-bold uppercase italic px-1 py-1">No active roles detected...</span>
                           )}
                         </div>
                       </div>
@@ -1742,7 +2652,7 @@ export default function App() {
                             onChange={(e) => setSelectedRoleId(e.target.value)}
                             className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-xs outline-none focus:border-brand transition-all appearance-none cursor-pointer"
                           >
-                            <option value="">Select a protocol to assign...</option>
+                            <option value="">Select a role to assign...</option>
                             {availableRoles.filter(r => !modifyingMember.roles?.find((mr: any) => mr.id === r.id)).map(role => (
                               <option key={role.id} value={role.id}>
                                 {role.name}
@@ -1878,7 +2788,22 @@ function HealthItem({ label, status }: { label: string; status: string }) {
   );
 }
 
-function AutoModGroup({ icon, title, desc, active, onToggle, actions, onActionsChange }: { icon: React.ReactNode; title: string; desc: string; active: boolean; onToggle: (v: boolean) => void; actions?: any; onActionsChange?: (v: any) => void }) {
+function AutoModGroup({ 
+  icon, title, desc, active, onToggle, actions, onActionsChange, 
+  bypassRoles, onBypassRolesChange, 
+  bypassPermissions, onBypassPermissionsChange,
+  availableRoles, botPerms, extra 
+}: { 
+  icon: React.ReactNode; title: string; desc: string; active: boolean; onToggle: (v: boolean) => void; 
+  actions?: any; onActionsChange?: (v: any) => void; 
+  bypassRoles?: string[]; onBypassRolesChange?: (v: string[]) => void;
+  bypassPermissions?: string[]; onBypassPermissionsChange?: (v: string[]) => void;
+  availableRoles: any[];
+  botPerms: any, extra?: React.ReactNode 
+}) {
+  const [showBypass, setShowBypass] = useState(false);
+  const COMMON_BYPASS_PERMS = ["ManageMessages", "ModerateMembers", "ManageGuild", "ManageChannels"];
+
   return (
     <div className={`p-4 rounded-2xl border transition-all ${active ? 'bg-zinc-900 border-brand/30 shadow-lg shadow-brand/5' : 'bg-zinc-950 border-zinc-800 opacity-40'}`}>
       <div className="flex items-center gap-4 mb-4">
@@ -1889,7 +2814,10 @@ function AutoModGroup({ icon, title, desc, active, onToggle, actions, onActionsC
           {icon}
         </button>
         <div className="flex-1">
-          <h4 className={`text-sm font-bold ${active ? 'text-white' : 'text-zinc-300'}`}>{title}</h4>
+          <div className="flex items-center justify-between">
+            <h4 className={`text-sm font-bold ${active ? 'text-white' : 'text-zinc-300'}`}>{title}</h4>
+            {extra}
+          </div>
           <p className="text-[10px] text-zinc-500 font-medium mt-0.5">{desc}</p>
         </div>
         <button 
@@ -1900,20 +2828,151 @@ function AutoModGroup({ icon, title, desc, active, onToggle, actions, onActionsC
         </button>
       </div>
       
-      {active && onActionsChange && actions && (
-        <div className="pt-4 border-t border-zinc-800">
-          <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-3 ml-1">Simultaneous Actions</p>
-          <div className="flex flex-wrap gap-2">
-            {(['delete', 'warn', 'kick', 'mute', 'ban'] as const).map(type => (
-              <button 
-                key={type}
-                onClick={() => onActionsChange({ ...actions, [type]: !actions[type] })}
-                className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${actions[type] ? 'bg-brand/10 border-brand/40 text-brand shadow-sm' : 'bg-zinc-950 border-zinc-800 text-zinc-600 hover:text-zinc-400'}`}
+      {active && (
+        <div className="pt-4 border-t border-zinc-800 space-y-4">
+          {onActionsChange && actions && (
+            <div className="space-y-3">
+              <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 ml-1">Simultaneous Actions</p>
+              <div className="flex flex-wrap gap-2">
+                {(['delete', 'warn', 'kick', 'mute', 'ban'] as const).map(type => {
+                  const hasPermission = botPerms.isAdmin || (
+                    type === 'mute' ? botPerms.hasModerateMembers :
+                    type === 'kick' ? botPerms.hasKickMembers :
+                    type === 'ban' ? botPerms.hasBanMembers :
+                    true
+                  );
+
+                  return (
+                    <button 
+                      key={type}
+                      disabled={!hasPermission}
+                      onClick={() => onActionsChange({ ...actions, [type]: !actions[type] })}
+                      className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all flex items-center gap-2 ${actions[type] ? 'bg-brand/10 border-brand/40 text-brand shadow-sm' : 'bg-zinc-950 border-zinc-800 text-zinc-600 hover:text-zinc-400'} ${!hasPermission ? 'opacity-30 cursor-not-allowed' : ''}`}
+                    >
+                      {type}
+                      {!hasPermission && <Lock className="w-3 h-3" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {actions?.mute && (
+            <div className="space-y-2 p-3 bg-zinc-950 border border-zinc-800 rounded-2xl">
+              <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex justify-between px-1">
+                <span>Rule-Specific Mute Duration</span>
+                <Clock className="w-3 h-3" />
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: "Hrs", unit: 3600000 },
+                  { label: "Mins", unit: 60000 },
+                  { label: "Secs", unit: 1000 }
+                ].map(({ label, unit }) => (
+                  <div key={label} className="space-y-1">
+                    <p className="text-[8px] text-zinc-600 font-bold uppercase px-1">{label}</p>
+                    <input 
+                      type="number" 
+                      min="0"
+                      value={Math.floor((actions.muteDurationMs || 600000) / unit) % (unit === 3600000 ? 999 : 60)}
+                      onChange={(e) => {
+                        const currentDur = actions.muteDurationMs || 600000;
+                        const h = Math.floor(currentDur / 3600000);
+                        const m = Math.floor((currentDur % 3600000) / 60000);
+                        const s = Math.floor((currentDur % 60000) / 1000);
+                        
+                        let newVal = parseInt(e.target.value) || 0;
+                        let newTotal = currentDur;
+                        
+                        if (unit === 3600000) newTotal = (newVal * 3600000) + (m * 60000) + (s * 1000);
+                        else if (unit === 60000) newTotal = (h * 3600000) + (newVal * 60000) + (s * 1000);
+                        else newTotal = (h * 3600000) + (m * 60000) + (newVal * 1000);
+                        
+                        onActionsChange({ ...actions, muteDurationMs: Math.max(1000, newTotal) });
+                      }}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 text-[10px] font-mono focus:border-brand outline-none transition-all"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Bypass Configuration */}
+          <div className="space-y-2">
+            <button 
+              onClick={() => setShowBypass(!showBypass)}
+              className="w-full flex items-center justify-between px-1 py-1 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                <Users className="w-3 h-3" />
+                Bypass Permissions & Roles
+              </span>
+              {showBypass ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+            
+            {showBypass && onBypassRolesChange && onBypassPermissionsChange && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                className="space-y-4 pt-2 overflow-hidden"
               >
-                {type}
-              </button>
-            ))}
+                <div className="space-y-2">
+                  <p className="text-[8px] font-bold text-zinc-600 uppercase tracking-tighter px-1">Bypass Roles</p>
+                  <div className="flex flex-wrap gap-1.5 p-2 bg-zinc-950 border border-zinc-800 rounded-xl max-h-32 overflow-y-auto custom-scrollbar">
+                    {availableRoles.filter(r => !r.isEveryone).map(role => (
+                      <button 
+                        key={role.id}
+                        onClick={() => {
+                          const current = bypassRoles || [];
+                          if (current.includes(role.id)) {
+                            onBypassRolesChange(current.filter(id => id !== role.id));
+                          } else {
+                            onBypassRolesChange([...current, role.id]);
+                          }
+                        }}
+                        className={`px-2 py-1 rounded-md text-[8px] font-bold transition-all border ${bypassRoles?.includes(role.id) ? 'bg-brand/20 border-brand/40 text-brand' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700'}`}
+                      >
+                        {role.name}
+                      </button>
+                    ))}
+                    {availableRoles.length === 0 && <p className="text-[8px] text-zinc-700 italic p-1">No roles identified...</p>}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-[8px] font-bold text-zinc-600 uppercase tracking-tighter px-1">Bypass Permissions</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {COMMON_BYPASS_PERMS.map(perm => (
+                      <button 
+                        key={perm}
+                        onClick={() => {
+                          const current = bypassPermissions || [];
+                          if (current.includes(perm)) {
+                            onBypassPermissionsChange(current.filter(p => p !== perm));
+                          } else {
+                            onBypassPermissionsChange([...current, perm]);
+                          }
+                        }}
+                        className={`px-2 py-1 rounded-md text-[8px] font-bold transition-all border ${bypassPermissions?.includes(perm) ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-500' : 'bg-zinc-950 border-zinc-800 text-zinc-600 hover:border-zinc-700'}`}
+                      >
+                        {perm}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[7px] text-zinc-600 px-1 italic">Users with Administrator automatically bypass all filters.</p>
+                </div>
+              </motion.div>
+            )}
           </div>
+
+          {!botPerms.isAdmin && (!botPerms.hasModerateMembers || !botPerms.hasKickMembers || !botPerms.hasBanMembers) && (
+             <p className="mt-2 text-[8px] text-amber-500 font-bold uppercase flex items-center gap-1">
+               <ShieldAlert className="w-3 h-3" />
+               Bot lacks key moderator permissions. Some high-level actions may be locked.
+             </p>
+          )}
         </div>
       )}
     </div>
