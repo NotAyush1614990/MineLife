@@ -61,6 +61,7 @@ interface Status {
   configMissing: boolean;
   clientId?: string;
   aiActive?: boolean;
+  geminiStatus?: 'success' | 'none' | 'missing' | 'permission_denied' | 'other_error';
 }
 
 export default function App() {
@@ -190,7 +191,11 @@ export default function App() {
       ]);
       
       if (statusData && Object.keys(statusData).length > 0) {
-        setStatus({ ...statusData, aiActive: systemStatusData.aiActive });
+        setStatus({ 
+          ...statusData, 
+          aiActive: systemStatusData.aiActive,
+          geminiStatus: systemStatusData.geminiStatus
+        });
       }
       if (statsData && Object.keys(statsData).length > 0) {
         setStats(statsData);
@@ -1720,7 +1725,22 @@ export default function App() {
                              availableRoles={availableRoles}
                              botPerms={botPerms}
                              extra={
-                               status?.aiActive ? (
+                               (status?.geminiStatus === "permission_denied") ? (
+                                 <span className="text-[8px] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded-md font-black uppercase tracking-widest flex items-center gap-1" title="Permission Error: Lack of scopes or invalid key. Local heuristics fallback is active.">
+                                   <Activity className="w-2 h-2" />
+                                   API Permission Error (Heuristics Fallback)
+                                 </span>
+                               ) : (status?.geminiStatus === "missing") ? (
+                                 <span className="text-[8px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded-md font-black uppercase tracking-widest flex items-center gap-1" title="Gemini API Key is missing. Using local rule heuristics. Add it in Secrets.">
+                                   <Activity className="w-2 h-2" />
+                                   API Key Missing (Heuristics Fallback)
+                                 </span>
+                               ) : (status?.geminiStatus === "other_error") ? (
+                                 <span className="text-[8px] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded-md font-black uppercase tracking-widest flex items-center gap-1" title="An error occurred while calling the Gemini API. Backing up with local heuristics.">
+                                   <Activity className="w-2 h-2" />
+                                   API Error (Heuristics Fallback)
+                                 </span>
+                               ) : status?.aiActive || (status?.geminiStatus === "success") ? (
                                  <span className="text-[8px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-0.5 rounded-md font-black uppercase tracking-widest flex items-center gap-1">
                                    <Activity className="w-2 h-2" />
                                    AI Engine Online
@@ -1736,6 +1756,20 @@ export default function App() {
 
                            {autoModSettings.badWordFilter && (
                              <div className="space-y-4 p-4 bg-zinc-950/50 border border-zinc-800 rounded-2xl ml-4">
+                               {status?.geminiStatus === "permission_denied" && (
+                                 <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl space-y-1">
+                                   <div className="flex items-center gap-2 text-rose-500 text-[10px] font-bold uppercase tracking-wider animate-pulse">
+                                     <ShieldAlert className="w-4 h-4" />
+                                     Gemini API Permission Error
+                                   </div>
+                                   <p className="text-[10px] text-rose-400">
+                                     Your Gemini API Key lacks the required scopes or is invalid. Please check <strong>Settings &gt; Secrets</strong> in AI Studio.
+                                   </p>
+                                   <p className="text-[9px] text-zinc-500 italic">
+                                     The system has automatically activated local rule heuristics to keep your moderation active.
+                                   </p>
+                                 </div>
+                               )}
                                <div className="space-y-4 pt-2 border-t border-zinc-900">
                                  <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 px-1 flex justify-between">
                                    <span>Banned Keywords & Phrases</span>

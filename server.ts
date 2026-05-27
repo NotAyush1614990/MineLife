@@ -18,12 +18,14 @@ import { GoogleGenAI, Type } from "@google/genai";
 dotenv.config();
 
 let genAIInstance: GoogleGenAI | null = null;
+let lastGeminiStatus: 'success' | 'none' | 'missing' | 'permission_denied' | 'other_error' = 'none';
 
 function getGenAI(): GoogleGenAI {
   if (genAIInstance) return genAIInstance;
   
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
+    lastGeminiStatus = 'missing';
     throw new Error("GEMINI_API_KEY environment variable is not set. Please add your API key in the 'Secrets' panel in the AI Studio settings.");
   }
   
@@ -36,6 +38,45 @@ function getGenAI(): GoogleGenAI {
     }
   });
   return genAIInstance;
+}
+
+function runHeuristicFallback(content: string): { violation: boolean, reason?: string } {
+  // Local Heuristic Fallback treated as "Light AI"
+  const toxicKeywords = ["hate", "kill", "die", "stupid", "idiot", "trash", "garbage", "loser", "noob", "ugly", "fat", "short", "piss", "scum", "hell", "fuck", "shit", "bitch", "asshole"];
+  const words = content.toLowerCase().split(/\s+/);
+  const toxicCount = words.filter(w => toxicKeywords.some(tok => w === tok || (w.length > 4 && w.includes(tok)))).length;
+  
+  if (toxicCount >= 2) {
+    return { violation: true, reason: "Heuristic AI Detection: High toxicity density" };
+  }
+  return { violation: false };
+}
+
+async function testGeminiAPI() {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    lastGeminiStatus = 'missing';
+    return;
+  }
+  try {
+    const ai = getGenAI();
+    await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: "ping",
+    });
+    lastGeminiStatus = 'success';
+    console.log("Gemini API connection test: SUCCESS");
+  } catch (error: any) {
+    if (error?.message?.includes("GEMINI_API_KEY environment variable is not set")) {
+      lastGeminiStatus = 'missing';
+    } else if (error?.status === 403 || error?.message?.includes('PERMISSION_DENIED') || error?.message?.includes('API_KEY_INVALID') || error?.status === 400) {
+      lastGeminiStatus = 'permission_denied';
+      console.error("Gemini API Connection Test: PERMISSION_DENIED. Check Settings > Secrets.");
+    } else {
+      lastGeminiStatus = 'other_error';
+      console.error("Gemini API Connection Test Error:", error);
+    }
+  }
 }
 
 const app = express();
@@ -297,20 +338,13 @@ async function checkOffenseAI(content: string): Promise<{ violation: boolean, re
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      // Local Heuristic Fallback treated as "Light AI"
-      const toxicKeywords = ["hate", "kill", "die", "stupid", "idiot", "trash", "garbage", "loser", "noob", "ugly", "fat", "short", "piss", "scum", "hell", "fuck", "shit", "bitch", "asshole"];
-      const words = content.toLowerCase().split(/\s+/);
-      const toxicCount = words.filter(w => toxicKeywords.some(tok => w === tok || (w.length > 4 && w.includes(tok)))).length;
-      
-      if (toxicCount >= 2) {
-        return { violation: true, reason: "Heuristic AI Detection: High toxicity density" };
-      }
-      return { violation: false };
+      lastGeminiStatus = 'missing';
+      return runHeuristicFallback(content);
     }
 
     const ai = getGenAI();
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.5-flash",
       contents: `You are a professional Discord Moderator AI. 
 Analyze the following message for toxic, offensive, abusive, hateful, or highly inappropriate content (English, Hindi, Hinglish, or mixed).
 Message: "${content}"
@@ -335,19 +369,24 @@ If unsure but it seems toxic, mark as offensive.`,
     });
 
     const result = JSON.parse(response.text);
+    lastGeminiStatus = 'success';
     return { 
       violation: result.isOffensive, 
       reason: result.isOffensive ? `AI Detection: ${result.reason}` : undefined 
     };
   } catch (error: any) {
     if (error?.message?.includes("GEMINI_API_KEY environment variable is not set")) {
+      lastGeminiStatus = 'missing';
       console.error(error.message);
-    } else if (error?.status === 403 || error?.message?.includes('PERMISSION_DENIED')) {
+    } else if (error?.status === 403 || error?.message?.includes('PERMISSION_DENIED') || error?.message?.includes('API_KEY_INVALID') || error?.status === 400) {
+      lastGeminiStatus = 'permission_denied';
       console.error("Gemini API Permission Error: This usually means your API Key lacks the required scopes or is invalid. Please check Settings > Secrets.");
     } else {
+      lastGeminiStatus = 'other_error';
       console.error("Gemini AI Detection Error:", error);
     }
-    return { violation: false }; // Fallback to safe if AI fails
+    // Fallback to local heuristic checks if the AI fails
+    return runHeuristicFallback(content);
   }
 }
 const spamCache = new Map<string, { messages: { id: string, timestamp: number }[], lastContent: string, duplicateMessages: string[] }>();
@@ -1878,10 +1917,11 @@ async function startServer() {
   });
 
   app.get("/api/system-status", (req, res) => {
-    const aiActive = true; // Feature is enabled (with local fallback if key is missing)
+    const aiActive = (process.env.GEMINI_API_KEY && lastGeminiStatus !== 'permission_denied') ? true : false;
     res.json({
       online: true,
       aiActive: aiActive,
+      geminiStatus: lastGeminiStatus,
       discordReady: client.isReady(),
       uptime: process.uptime()
     });
@@ -2008,6 +2048,9 @@ async function startServer() {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
     
+    // Test Gemini API connection
+    testGeminiAPI();
+
     // Start Discord Bot
     if (process.env.DISCORD_TOKEN) {
       logSystem("INFO", "Attempting gateway connection...");
