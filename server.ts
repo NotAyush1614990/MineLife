@@ -403,8 +403,12 @@ client.on("messageCreate", async (message) => {
   if (message.author.bot || !message.guild) return;
 
   const db = getDB();
-  const guildSettings = db.autoMod?.[message.guild.id];
-  if (!guildSettings) return;
+  let guildSettings = db.autoMod?.[message.guild.id];
+  if (!guildSettings) {
+    guildSettings = { ...DEFAULT_AUTOMOD_SETTINGS };
+  } else {
+    guildSettings = { ...DEFAULT_AUTOMOD_SETTINGS, ...guildSettings };
+  }
 
   let violation = false;
   let reason = "";

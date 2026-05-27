@@ -1685,7 +1685,7 @@ export default function App() {
                               onChange={(e) => updateAutoMod({...autoModSettings, spamLimit: parseInt(e.target.value) || 1})}
                               className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:border-brand outline-none transition-all"
                             />
-                            <p className="text-[10px] text-zinc-600 px-1 italic">Maximum messages allowed within a 3-second window.</p>
+                            <p className="text-[10px] text-zinc-600 px-1 italic">Maximum messages allowed within a 5-second window.</p>
                           </div>
                           <AutoModGroup 
                             icon={<ExternalLink className="w-4 h-4" />}
