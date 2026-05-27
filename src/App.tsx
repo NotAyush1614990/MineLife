@@ -83,6 +83,60 @@ export default function App() {
   const [savingAutoMod, setSavingAutoMod] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
 
+  const [isTestingGemini, setIsTestingGemini] = useState(false);
+  const [geminiTestResult, setGeminiTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleRetestGemini = async () => {
+    setIsTestingGemini(true);
+    setGeminiTestResult(null);
+    try {
+      const res = await fetch("/api/retest-gemini", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setGeminiTestResult({
+          success: true,
+          message: "Connection test successful! Gemini API is now online."
+        });
+        if (status) {
+          setStatus({
+            ...status,
+            aiActive: data.aiActive,
+            geminiStatus: data.geminiStatus
+          });
+        }
+      } else {
+        let msg = "Connection failed. Please verify your API Key in Settings > Secrets.";
+        if (data.geminiStatus === "permission_denied") {
+          msg = "API Key Permission Denied. Double check that your key has valid scope/region access.";
+        } else if (data.geminiStatus === "missing") {
+          msg = "API Key is missing. Please add it to your AI Studio Secrets panel.";
+        }
+        setGeminiTestResult({
+          success: false,
+          message: msg
+        });
+        if (status) {
+          setStatus({
+            ...status,
+            aiActive: data.aiActive,
+            geminiStatus: data.geminiStatus
+          });
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      setGeminiTestResult({
+        success: false,
+        message: "An unexpected error occurred while contacting the server."
+      });
+    } finally {
+      setIsTestingGemini(false);
+    }
+  };
+
   const [auditLog, setAuditLog] = useState<any[]>([]);
   const [systemLogs, setSystemLogs] = useState<any[]>([]);
   const [commandsList, setCommandsList] = useState<any[]>([]);
@@ -1756,20 +1810,74 @@ export default function App() {
 
                            {autoModSettings.badWordFilter && (
                              <div className="space-y-4 p-4 bg-zinc-950/50 border border-zinc-800 rounded-2xl ml-4">
-                               {status?.geminiStatus === "permission_denied" && (
-                                 <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl space-y-1">
-                                   <div className="flex items-center gap-2 text-rose-500 text-[10px] font-bold uppercase tracking-wider animate-pulse">
-                                     <ShieldAlert className="w-4 h-4" />
-                                     Gemini API Permission Error
+                               <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl space-y-3 mb-4">
+                                 <div className="flex items-center justify-between">
+                                   <div className="flex items-center gap-2">
+                                     <div className={`w-2 h-2 rounded-full ${status?.geminiStatus === "success" || status?.aiActive ? "bg-emerald-500 animate-pulse" : "bg-amber-500"}`} />
+                                     <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">AI Diagnostics Panel</span>
                                    </div>
-                                   <p className="text-[10px] text-rose-400">
-                                     Your Gemini API Key lacks the required scopes or is invalid. Please check <strong>Settings &gt; Secrets</strong> in AI Studio.
-                                   </p>
-                                   <p className="text-[9px] text-zinc-500 italic">
-                                     The system has automatically activated local rule heuristics to keep your moderation active.
-                                   </p>
+                                   <button
+                                     onClick={handleRetestGemini}
+                                     disabled={isTestingGemini}
+                                     type="button"
+                                     className="text-[9px] font-extrabold uppercase tracking-widest bg-zinc-900 hover:bg-zinc-800 text-zinc-300 disabled:opacity-50 px-3 py-1.5 rounded-lg border border-zinc-800 hover:border-zinc-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                   >
+                                     {isTestingGemini ? (
+                                       <>
+                                         <Activity className="w-2.5 h-2.5 animate-spin text-brand" />
+                                         Testing...
+                                       </>
+                                     ) : (
+                                       "Re-test Status"
+                                     )}
+                                   </button>
                                  </div>
-                               )}
+
+                                 {status?.geminiStatus === "permission_denied" && (
+                                   <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg space-y-1">
+                                     <div className="flex items-center gap-1.5 text-rose-400 text-[10px] font-bold uppercase tracking-wider">
+                                       <ShieldAlert className="w-3.5 h-3.5 text-rose-500" />
+                                       Gemini API Permission Error
+                                     </div>
+                                     <p className="text-[10px] text-rose-400/95 leading-relaxed">
+                                       Your Gemini API Key lacks the required model scopes or is invalid. Please check <strong>Settings &gt; Secrets</strong> in AI Studio.
+                                     </p>
+                                     <p className="text-[9.5px] text-zinc-500 italic">
+                                       Local heuristics fallback is active to maintain safe moderation.
+                                     </p>
+                                   </div>
+                                 )}
+
+                                 {status?.geminiStatus === "missing" && (
+                                   <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg space-y-1">
+                                     <div className="flex items-center gap-1.5 text-amber-500 text-[10px] font-bold uppercase tracking-wider">
+                                       <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
+                                       API Key Missing
+                                     </div>
+                                     <p className="text-[10px] text-amber-400/90 leading-relaxed">
+                                        No Gemini API secret was found. Add <code>GEMINI_API_KEY</code> under <strong>Settings &gt; Secrets</strong> in AI Studio.
+                                     </p>
+                                     <p className="text-[9px] text-zinc-500 italic">
+                                       Local rules are currently serving as a temporary fallback filter.
+                                     </p>
+                                   </div>
+                                 )}
+
+                                 {(status?.geminiStatus === "success" || status?.aiActive) && (
+                                   <div className="p-3 bg-emerald-500/5 border border-emerald-500/15 rounded-lg">
+                                     <div className="text-emerald-400 text-[10px] font-semibold flex items-center gap-1.5">
+                                       <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                                       All Gemini systems operational. Advanced sentiment and contextual toxicity filters are active.
+                                     </div>
+                                   </div>
+                                 )}
+
+                                 {geminiTestResult && (
+                                   <div className={`p-3 rounded-lg border text-[10px] font-medium ${geminiTestResult.success ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 animate-pulse" : "bg-rose-500/10 border-rose-500/20 text-rose-400"}`}>
+                                     {geminiTestResult.message}
+                                   </div>
+                                 )}
+                               </div>
                                <div className="space-y-4 pt-2 border-t border-zinc-900">
                                  <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 px-1 flex justify-between">
                                    <span>Banned Keywords & Phrases</span>

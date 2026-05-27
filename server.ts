@@ -18,25 +18,29 @@ import { GoogleGenAI, Type } from "@google/genai";
 dotenv.config();
 
 let genAIInstance: GoogleGenAI | null = null;
+let lastUsedApiKey: string | undefined = undefined;
 let lastGeminiStatus: 'success' | 'none' | 'missing' | 'permission_denied' | 'other_error' = 'none';
 
 function getGenAI(): GoogleGenAI {
-  if (genAIInstance) return genAIInstance;
-  
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     lastGeminiStatus = 'missing';
+    genAIInstance = null;
+    lastUsedApiKey = undefined;
     throw new Error("GEMINI_API_KEY environment variable is not set. Please add your API key in the 'Secrets' panel in the AI Studio settings.");
   }
   
-  genAIInstance = new GoogleGenAI({
-    apiKey: apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
+  if (!genAIInstance || lastUsedApiKey !== apiKey) {
+    genAIInstance = new GoogleGenAI({
+      apiKey: apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
       }
-    }
-  });
+    });
+    lastUsedApiKey = apiKey;
+  }
   return genAIInstance;
 }
 
@@ -1925,6 +1929,30 @@ async function startServer() {
       discordReady: client.isReady(),
       uptime: process.uptime()
     });
+  });
+
+  app.post("/api/retest-gemini", async (req, res) => {
+    try {
+      // Reload .env file to fetch newly added variables or changes
+      dotenv.config({ override: true });
+      
+      // Clear instance cache to allow recreation with the fresh key
+      genAIInstance = null;
+      lastUsedApiKey = undefined;
+      
+      // Execute the test ping
+      await testGeminiAPI();
+      
+      const aiActive = (process.env.GEMINI_API_KEY && lastGeminiStatus !== 'permission_denied') ? true : false;
+      res.json({
+        success: lastGeminiStatus === 'success',
+        geminiStatus: lastGeminiStatus,
+        aiActive: aiActive
+      });
+    } catch (err: any) {
+      console.error("Manual Gemini retest error:", err);
+      res.status(500).json({ error: err.message || "Failed to retest connection" });
+    }
   });
 
   app.get("/api/users", (req, res) => {
