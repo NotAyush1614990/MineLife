@@ -23,7 +23,7 @@ let lastGeminiStatus: 'success' | 'none' | 'missing' | 'permission_denied' | 'ot
 
 function getGenAI(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey.trim() === "" || apiKey.includes("PLACEHOLDER") || apiKey.startsWith("MY_")) {
     lastGeminiStatus = 'missing';
     genAIInstance = null;
     lastUsedApiKey = undefined;
@@ -58,7 +58,7 @@ function runHeuristicFallback(content: string): { violation: boolean, reason?: s
 
 async function testGeminiAPI() {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey.trim() === "" || apiKey.includes("PLACEHOLDER") || apiKey.startsWith("MY_")) {
     lastGeminiStatus = 'missing';
     return;
   }
@@ -75,10 +75,10 @@ async function testGeminiAPI() {
       lastGeminiStatus = 'missing';
     } else if (error?.status === 403 || error?.message?.includes('PERMISSION_DENIED') || error?.message?.includes('API_KEY_INVALID') || error?.status === 400) {
       lastGeminiStatus = 'permission_denied';
-      console.error("Gemini API Connection Test: PERMISSION_DENIED. Check Settings > Secrets.");
+      console.warn("Gemini API Connection Test: PERMISSION_DENIED. Check Settings > Secrets.");
     } else {
       lastGeminiStatus = 'other_error';
-      console.error("Gemini API Connection Test Error:", error);
+      console.warn("Gemini API Connection Test Error:", error?.message || error);
     }
   }
 }
@@ -363,7 +363,7 @@ process.on("uncaughtException", (error) => {
 async function checkOffenseAI(content: string): Promise<{ violation: boolean, reason?: string }> {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey.trim() === "" || apiKey.includes("PLACEHOLDER") || apiKey.startsWith("MY_")) {
       lastGeminiStatus = 'missing';
       return runHeuristicFallback(content);
     }
@@ -403,13 +403,13 @@ If unsure but it seems toxic, mark as offensive.`,
   } catch (error: any) {
     if (error?.message?.includes("GEMINI_API_KEY environment variable is not set")) {
       lastGeminiStatus = 'missing';
-      console.error(error.message);
+      console.warn(error.message);
     } else if (error?.status === 403 || error?.message?.includes('PERMISSION_DENIED') || error?.message?.includes('API_KEY_INVALID') || error?.status === 400) {
       lastGeminiStatus = 'permission_denied';
-      console.error("Gemini API Permission Error: This usually means your API Key lacks the required scopes or is invalid. Please check Settings > Secrets.");
+      console.warn("Gemini API Permission Error: This usually means your API Key lacks the required scopes or is invalid. Please check Settings > Secrets.");
     } else {
       lastGeminiStatus = 'other_error';
-      console.error("Gemini AI Detection Error:", error);
+      console.warn("Gemini AI Detection Error:", error?.message || error);
     }
     // Fallback to local heuristic checks if the AI fails
     return runHeuristicFallback(content);
