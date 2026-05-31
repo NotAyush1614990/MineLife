@@ -338,6 +338,25 @@ const client = new Client({
   ],
 });
 
+client.on("error", (err) => {
+  logSystem("ERROR", `Discord client internal error: ${err.message}`);
+  console.error("Discord Client internal error:", err);
+});
+
+client.on("warn", (msg) => {
+  logSystem("WARN", `Discord client internal warning: ${msg}`);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  logSystem("ERROR", `Unhandled rejection detected at: ${promise}, reason: ${reason}`);
+  console.error("Unhandled Rejection:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  logSystem("ERROR", `Uncaught exception detected: ${error.message}`);
+  console.error("Uncaught Exception:", error);
+});
+
 async function checkOffenseAI(content: string): Promise<{ violation: boolean, reason?: string }> {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -859,18 +878,42 @@ client.on("ready", async () => {
   }
 });
 
+// Safely reply to an interaction, checking deferred/replied states and catching errors.
+async function safeReply(interaction: any, options: any) {
+  try {
+    if (interaction.replied || interaction.deferred) {
+      return await interaction.editReply(options);
+    } else {
+      return await interaction.reply(options);
+    }
+  } catch (err: any) {
+    if (err.code === 10062 || err.message?.includes("Unknown interaction")) {
+      console.warn("Interaction expired or already processed (10062):", err.message);
+    } else if (err.code === 40060 || err.message?.includes("already been acknowledged")) {
+      try {
+        return await interaction.editReply(options);
+      } catch (nestedErr) {
+        console.error("Failed to editReply after acknowledgment error:", nestedErr);
+      }
+    } else {
+      console.error("Failed to answer interaction safely:", err);
+    }
+  }
+}
+
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName, options, guild } = interaction;
 
   if (!guild) {
-    await interaction.reply({ content: "Commands can only be used in a server.", ephemeral: true });
+    await interaction.reply({ content: "Commands can only be used in a server.", ephemeral: true }).catch(() => {});
     return;
   }
 
   try {
     if (commandName === "warn") {
+      await interaction.deferReply().catch(() => {});
       const target = options.getUser("target")!;
       const reason = options.getString("reason") || "No reason provided";
       
@@ -886,10 +929,10 @@ client.on("interactionCreate", async (interaction) => {
         )
         .setTimestamp();
 
-      await interaction.reply({ embeds: [embed] });
+      await safeReply(interaction, { embeds: [embed] });
     }
 
-    if (commandName === "warnings") {
+    else if (commandName === "warnings") {
       const target = options.getUser("target")!;
       const db = getDB();
       const userWarnings = db.warnings.filter((w: any) => w.userId === target.id && w.guildId === guild.id);
@@ -902,16 +945,17 @@ client.on("interactionCreate", async (interaction) => {
           "This user has no warnings.")
         .setTimestamp();
 
-      await interaction.reply({ embeds: [embed] });
+      await safeReply(interaction, { embeds: [embed] });
     }
 
-    if (commandName === "kick") {
+    else if (commandName === "kick") {
+      await interaction.deferReply().catch(() => {});
       const targetUser = options.getUser("target")!;
       const reason = options.getString("reason") || "No reason provided";
       const member = await guild.members.fetch(targetUser.id);
 
       if (!member.kickable) {
-        return interaction.reply({ content: "I cannot kick this member. They may have a higher role than me.", ephemeral: true });
+        return safeReply(interaction, { content: "I cannot kick this member. They may have a higher role than me.", ephemeral: true });
       }
 
       await member.kick(reason);
@@ -936,16 +980,17 @@ client.on("interactionCreate", async (interaction) => {
         )
         .setTimestamp();
 
-      await interaction.reply({ embeds: [embed] });
+      await safeReply(interaction, { embeds: [embed] });
     }
 
-    if (commandName === "ban") {
+    else if (commandName === "ban") {
+      await interaction.deferReply().catch(() => {});
       const targetUser = options.getUser("target")!;
       const reason = options.getString("reason") || "No reason provided";
       const member = await guild.members.fetch(targetUser.id).catch(() => null);
 
       if (member && !member.bannable) {
-        return interaction.reply({ content: "I cannot ban this member. They may have a higher role than me.", ephemeral: true });
+        return safeReply(interaction, { content: "I cannot ban this member. They may have a higher role than me.", ephemeral: true });
       }
 
       await guild.members.ban(targetUser.id, { reason });
@@ -970,10 +1015,11 @@ client.on("interactionCreate", async (interaction) => {
         )
         .setTimestamp();
 
-      await interaction.reply({ embeds: [embed] });
+      await safeReply(interaction, { embeds: [embed] });
     }
 
-    if (commandName === "unban") {
+    else if (commandName === "unban") {
+      await interaction.deferReply().catch(() => {});
       const userId = options.getString("userid")!;
       
       try {
@@ -995,21 +1041,22 @@ client.on("interactionCreate", async (interaction) => {
           .setDescription(`Successfully revoked exclusion for user ID: ${userId}`)
           .setTimestamp();
 
-        await interaction.reply({ embeds: [embed] });
+        await safeReply(interaction, { embeds: [embed] });
       } catch (err: any) {
         logSystem("ERROR", `Unban failed: ${err.message}`);
-        await interaction.reply({ content: `Error: Failed to unban user. ${err.message}`, ephemeral: true });
+        await safeReply(interaction, { content: `Error: Failed to unban user. ${err.message}`, ephemeral: true });
       }
     }
 
-    if (commandName === "mute") {
+    else if (commandName === "mute") {
+      await interaction.deferReply().catch(() => {});
       const targetUser = options.getUser("target")!;
       const duration = options.getInteger("duration")!;
       const reason = options.getString("reason") || "No reason provided";
       const member = await guild.members.fetch(targetUser.id);
 
       if (!member.manageable) {
-        return interaction.reply({ content: "I cannot mute this member.", ephemeral: true });
+        return safeReply(interaction, { content: "I cannot mute this member.", ephemeral: true });
       }
 
       await member.timeout(duration * 60 * 1000, reason);
@@ -1034,15 +1081,16 @@ client.on("interactionCreate", async (interaction) => {
         )
         .setTimestamp();
 
-      await interaction.reply({ embeds: [embed] });
+      await safeReply(interaction, { embeds: [embed] });
     }
 
-    if (commandName === "unmute") {
+    else if (commandName === "unmute") {
+      await interaction.deferReply().catch(() => {});
       const targetUser = options.getUser("target")!;
       const member = await guild.members.fetch(targetUser.id);
 
       if (!member.manageable) {
-        return interaction.reply({ content: "I cannot unmute this member.", ephemeral: true });
+        return safeReply(interaction, { content: "I cannot unmute this member.", ephemeral: true });
       }
 
       await member.timeout(null);
@@ -1063,10 +1111,10 @@ client.on("interactionCreate", async (interaction) => {
         .setDescription(`${targetUser.tag} has been unmuted.`)
         .setTimestamp();
 
-      await interaction.reply({ embeds: [embed] });
+      await safeReply(interaction, { embeds: [embed] });
     }
 
-    if (commandName === "stats") {
+    else if (commandName === "stats") {
       logAction({
         action: "STATS",
         targetId: "SYSTEM",
@@ -1096,10 +1144,10 @@ client.on("interactionCreate", async (interaction) => {
         .setFooter({ text: "Operational Status: NOMINAL" })
         .setTimestamp();
 
-      await interaction.reply({ embeds: [embed] });
+      await safeReply(interaction, { embeds: [embed] });
     }
 
-    if (commandName === "help") {
+    else if (commandName === "help") {
       logAction({
         action: "HELP",
         targetId: "SYSTEM",
@@ -1128,23 +1176,23 @@ client.on("interactionCreate", async (interaction) => {
         .setTimestamp()
         .setFooter({ text: "Cracked Tier Security Systems" });
       
-      await interaction.reply({ embeds: [helpEmbed], ephemeral: true });
+      await safeReply(interaction, { embeds: [helpEmbed], ephemeral: true });
     }
 
-    if (commandName === "purge") {
+    else if (commandName === "purge") {
       const amount = options.getInteger("amount")!;
       const channel = interaction.channel;
 
       if (!channel || !('bulkDelete' in channel)) {
-        return interaction.reply({ content: "I cannot purge messages in this channel type.", ephemeral: true });
+        return safeReply(interaction, { content: "I cannot purge messages in this channel type.", ephemeral: true });
       }
 
       // Pre-flight permission check
       if (guild.members.me && !guild.members.me.permissionsIn(channel as any).has(PermissionFlagsBits.ManageMessages)) {
-        return interaction.reply({ content: "Operational Failure: I lack the 'Manage Messages' permission in this channel.", ephemeral: true });
+        return safeReply(interaction, { content: "Operational Failure: I lack the 'Manage Messages' permission in this channel.", ephemeral: true });
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
       try {
         let remaining = amount;
@@ -1188,25 +1236,25 @@ client.on("interactionCreate", async (interaction) => {
           ? `Successfully purged ${totalDeleted} messages. Note: ${stopReason}`
           : `Successfully purged ${totalDeleted} messages.`;
 
-        await interaction.editReply({ content: statusMsg });
+        await safeReply(interaction, { content: statusMsg });
       } catch (err: any) {
         logSystem("ERROR", `Critical: Purge failed: ${err.message}`);
-        await interaction.editReply({ content: `Critical Error: Failed to delete role. Details: ${err.message}` });
+        await safeReply(interaction, { content: `Critical Error: Failed to delete messages. Details: ${err.message}` });
       }
     }
 
-    if (commandName === "lock") {
+    else if (commandName === "lock") {
       const channel = interaction.channel;
       if (!channel || !('permissionOverwrites' in channel)) {
-        return interaction.reply({ content: "Operational Failure: Channel type does not support permission overrides.", ephemeral: true });
+        return safeReply(interaction, { content: "Operational Failure: Channel type does not support permission overrides.", ephemeral: true });
       }
 
       // Pre-flight permission check: Bot needs Manage Roles to edit overwrites
       if (guild.members.me && !guild.members.me.permissionsIn(channel as any).has(PermissionFlagsBits.ManageRoles)) {
-        return interaction.reply({ content: "Operational Failure: I lack the 'Manage Roles' permission to modify channel lockdowns.", ephemeral: true });
+        return safeReply(interaction, { content: "Operational Failure: I lack the 'Manage Roles' permission to modify channel lockdowns.", ephemeral: true });
       }
 
-      await interaction.deferReply();
+      await interaction.deferReply().catch(() => {});
 
       try {
         await (channel as any).permissionOverwrites.edit(guild.roles.everyone, {
@@ -1231,25 +1279,25 @@ client.on("interactionCreate", async (interaction) => {
           .setColor(0xFF4500)
           .setTimestamp();
 
-        await interaction.editReply({ embeds: [embed] });
+        await safeReply(interaction, { embeds: [embed] });
       } catch (err: any) {
         logSystem("ERROR", `Lock failed: ${err.message}`);
-        await interaction.editReply({ content: `Error: Failed to lock channel. ${err.message}` });
+        await safeReply(interaction, { content: `Error: Failed to lock channel. ${err.message}` });
       }
     }
 
-    if (commandName === "unlock") {
+    else if (commandName === "unlock") {
       const channel = interaction.channel;
       if (!channel || !('permissionOverwrites' in channel)) {
-        return interaction.reply({ content: "Operational Failure: Channel type does not support permission overrides.", ephemeral: true });
+        return safeReply(interaction, { content: "Operational Failure: Channel type does not support permission overrides.", ephemeral: true });
       }
 
       // Pre-flight permission check
       if (guild.members.me && !guild.members.me.permissionsIn(channel as any).has(PermissionFlagsBits.ManageRoles)) {
-        return interaction.reply({ content: "Operational Failure: I lack the 'Manage Roles' permission to modify channel lockdowns.", ephemeral: true });
+        return safeReply(interaction, { content: "Operational Failure: I lack the 'Manage Roles' permission to modify channel lockdowns.", ephemeral: true });
       }
 
-      await interaction.deferReply();
+      await interaction.deferReply().catch(() => {});
 
       try {
         await (channel as any).permissionOverwrites.edit(guild.roles.everyone, {
@@ -1274,20 +1322,16 @@ client.on("interactionCreate", async (interaction) => {
           .setColor(0x00FF00)
           .setTimestamp();
 
-        await interaction.editReply({ embeds: [embed] });
+        await safeReply(interaction, { embeds: [embed] });
       } catch (err: any) {
         logSystem("ERROR", `Unlock failed: ${err.message}`);
-        await interaction.editReply({ content: `Error: Failed to unlock channel. ${err.message}` });
+        await safeReply(interaction, { content: `Error: Failed to unlock channel. ${err.message}` });
       }
     }
 
   } catch (error) {
     console.error("Interaction Error:", error);
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ content: "There was an error while executing this command!", ephemeral: true });
-    } else {
-      await interaction.reply({ content: "There was an error while executing this command!", ephemeral: true });
-    }
+    await safeReply(interaction, { content: "There was an error while executing this command!", ephemeral: true });
   }
 });
 
