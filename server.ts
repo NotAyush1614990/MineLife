@@ -131,6 +131,8 @@ const DEFAULT_AUTOMOD_SETTINGS = {
   inviteFilterBypassRoles: [],
   inviteFilterBypassPermissions: ["ManageMessages", "ModerateMembers"],
   inviteForwardLink: "",
+  inviteForwardDelete: true,
+  inviteForwardDeleteDelay: 10,
   wordFilter: [], 
   badWordFilter: true,
   badWordList: [
@@ -731,9 +733,19 @@ client.on("messageCreate", async (message) => {
 
         // Post official/forward link of invite if configured
         if (reason === "Unauthorized invite link" && guildSettings.inviteForwardLink) {
-          await message.channel.send({
-            content: `⚠️ **Unauthorized invite link intercepted, ${message.author}!** Please use our forward/official link instead: ${guildSettings.inviteForwardLink}`
-          }).catch(() => {});
+          try {
+            const sentMsg = await message.channel.send({
+              content: `⚠️ **Unauthorized invite link intercepted, ${message.author}!** Please use our forward/official link instead: ${guildSettings.inviteForwardLink}`
+            });
+            if (sentMsg && guildSettings.inviteForwardDelete) {
+              const delayMs = (guildSettings.inviteForwardDeleteDelay || 10) * 1000;
+              setTimeout(() => {
+                sentMsg.delete().catch(() => {});
+              }, delayMs);
+            }
+          } catch (err: any) {
+            logSystem("ERROR", `Failed to send/delete forward message: ${err.message}`);
+          }
         }
       }
 

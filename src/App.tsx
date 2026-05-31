@@ -1762,6 +1762,10 @@ export default function App() {
                             botPerms={botPerms}
                             forwardLink={autoModSettings.inviteForwardLink}
                             onForwardLinkChange={(v) => updateAutoMod({...autoModSettings, inviteForwardLink: v})}
+                            forwardDelete={autoModSettings.inviteForwardDelete}
+                            onForwardDeleteChange={(v) => updateAutoMod({...autoModSettings, inviteForwardDelete: v})}
+                            forwardDeleteDelay={autoModSettings.inviteForwardDeleteDelay}
+                            onForwardDeleteDelayChange={(v) => updateAutoMod({...autoModSettings, inviteForwardDeleteDelay: v})}
                           />
                         </div>
 
@@ -2937,7 +2941,9 @@ function AutoModGroup({
   bypassRoles, onBypassRolesChange, 
   bypassPermissions, onBypassPermissionsChange,
   availableRoles, botPerms, extra,
-  forwardLink, onForwardLinkChange
+  forwardLink, onForwardLinkChange,
+  forwardDelete, onForwardDeleteChange,
+  forwardDeleteDelay, onForwardDeleteDelayChange
 }: { 
   icon: React.ReactNode; title: string; desc: string; active: boolean; onToggle: (v: boolean) => void; 
   actions?: any; onActionsChange?: (v: any) => void; 
@@ -2947,6 +2953,10 @@ function AutoModGroup({
   botPerms: any; extra?: React.ReactNode;
   forwardLink?: string;
   onForwardLinkChange?: (v: string) => void;
+  forwardDelete?: boolean;
+  onForwardDeleteChange?: (v: boolean) => void;
+  forwardDeleteDelay?: number;
+  onForwardDeleteDelayChange?: (v: number) => void;
 }) {
   const [showBypass, setShowBypass] = useState(false);
   const COMMON_BYPASS_PERMS = ["ManageMessages", "ModerateMembers", "ManageGuild", "ManageChannels"];
@@ -3047,21 +3057,63 @@ function AutoModGroup({
           )}
 
           {onForwardLinkChange && (
-            <div className="space-y-2 p-3 bg-zinc-950 border border-zinc-805 rounded-2xl">
-              <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex justify-between px-1">
-                <span>Forward / Redirect Link</span>
-                <ExternalLink className="w-3 h-3 text-brand" />
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. https://discord.gg/your-partner-or-allowed-invite"
-                value={forwardLink || ''}
-                onChange={(e) => onForwardLinkChange(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs focus:border-brand outline-none transition-all text-white placeholder-zinc-600 font-mono"
-              />
-              <p className="text-[9px] text-zinc-500 px-1 leading-relaxed">
-                When an unauthorized invite link is deleted by the interceptor, this official forward link is posted immediately in the chat to redirect users.
-              </p>
+            <div className="space-y-4 p-3 bg-zinc-950 border border-zinc-800 rounded-2xl">
+              <div className="space-y-2">
+                <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex justify-between px-1">
+                  <span>Forward / Redirect Link</span>
+                  <ExternalLink className="w-3 h-3 text-brand" />
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. https://discord.gg/your-partner-or-allowed-invite"
+                  value={forwardLink || ''}
+                  onChange={(e) => onForwardLinkChange(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs focus:border-brand outline-none transition-all text-white placeholder-zinc-600 font-mono"
+                />
+                <p className="text-[9px] text-zinc-500 px-1 leading-relaxed">
+                  When an unauthorized invite link is deleted by the interceptor, this official forward link is posted immediately in the chat to redirect users.
+                </p>
+              </div>
+
+              {onForwardDeleteChange && onForwardDeleteDelayChange && (
+                <div className="space-y-3 pt-2.5 border-t border-zinc-900">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <label className="text-[10px] font-bold text-zinc-300">Auto-Delete Forward Message</label>
+                      <p className="text-[9px] text-zinc-500">Automatically remove the message after sending to clear chat clutter.</p>
+                    </div>
+                    <button
+                      onClick={() => onForwardDeleteChange(!forwardDelete)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        forwardDelete ? "bg-brand" : "bg-zinc-800"
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                          forwardDelete ? "translate-x-4" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {forwardDelete && (
+                    <div className="space-y-1.5 pl-1">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex justify-between">
+                        <span>Delete Delay (Seconds)</span>
+                        <span className="text-brand font-mono">{forwardDeleteDelay || 10}s</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="2"
+                        max="300"
+                        value={forwardDeleteDelay || 10}
+                        onChange={(e) => onForwardDeleteDelayChange(Math.max(2, parseInt(e.target.value) || 2))}
+                        className="w-24 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-xs focus:border-brand outline-none text-white font-mono"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
