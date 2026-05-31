@@ -133,6 +133,10 @@ const DEFAULT_AUTOMOD_SETTINGS = {
   inviteForwardLink: "",
   inviteForwardDelete: true,
   inviteForwardDeleteDelay: 10,
+  warnDMTemplate: "⚠️ **You have been warned in {guild}!**\nReason: {reason}",
+  warnChannelTemplate: "⚠️ **{user}, you have been warned for {reason}!** Keep our community clean.",
+  warnChannelDelete: true,
+  warnChannelDeleteDelay: 10,
   wordFilter: [], 
   badWordFilter: true,
   badWordList: [
@@ -283,7 +287,7 @@ function isModuleBypassed(member: any, bypassRoles: string[] = [], bypassPermiss
 }
 
 // Helper to issue a warning and send DM
-async function issueWarning(guild: any, target: any, moderator: { id: string, tag: string }, reason: string) {
+async function issueWarning(guild: any, target: any, moderator: { id: string, tag: string }, reason: string, guildSettings?: any) {
   const db = getDB();
   
   const targetTag = target.user ? target.user.tag : target.tag;
@@ -312,9 +316,15 @@ async function issueWarning(guild: any, target: any, moderator: { id: string, ta
 
   // Try to DM the user
   try {
+    const dmTemplate = guildSettings?.warnDMTemplate || "⚠️ **You have been warned in {guild}!**\nReason: {reason}";
+    const dmText = dmTemplate
+      .replace(/\{guild\}/g, guild.name)
+      .replace(/\{reason\}/g, reason)
+      .replace(/\{user\}/g, targetTag);
+
     const dmEmbed = new EmbedBuilder()
       .setTitle(`Warning Issued`)
-      .setDescription(`You have been warned in **${guild.name}**`)
+      .setDescription(dmText)
       .setColor(0xFFA500)
       .addFields(
         { name: "Reason", value: reason },
@@ -750,7 +760,28 @@ client.on("messageCreate", async (message) => {
       }
 
       if (actions.warn || isRepeatOffender) {
-        await issueWarning(message.guild, member, { id: "SENTINEL-AI", tag: "SENTINEL-AI" }, `[Auto-Mod] ${reason} ${isRepeatOffender ? '(Escalated Due to History)' : ''}`);
+        const warnReason = `[Auto-Mod] ${reason} ${isRepeatOffender ? '(Escalated Due to History)' : ''}`;
+        await issueWarning(message.guild, member, { id: "SENTINEL-AI", tag: "SENTINEL-AI" }, warnReason, guildSettings);
+
+        // Also post in-channel warning alert if defined
+        if (guildSettings.warnChannelTemplate) {
+          const warnText = guildSettings.warnChannelTemplate
+            .replace(/\{user\}/g, `<@${member.id}>`)
+            .replace(/\{guild\}/g, message.guild.name)
+            .replace(/\{reason\}/g, reason);
+            
+          try {
+            const sentMsg = await message.channel.send({ content: warnText });
+            if (sentMsg && guildSettings.warnChannelDelete) {
+              const delay = (guildSettings.warnChannelDeleteDelay || 10) * 1000;
+              setTimeout(() => {
+                sentMsg.delete().catch(() => {});
+              }, delay);
+            }
+          } catch (err: any) {
+             logSystem("ERROR", `Failed to send/delete public public warn notice: ${err.message}`);
+          }
+        }
       }
 
       if (isRepeatOffender && member.manageable) {

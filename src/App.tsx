@@ -2000,6 +2000,91 @@ export default function App() {
                               </div>
                               <p className="text-[10px] text-zinc-600 px-1 italic">Shared duration for all triggered punishments.</p>
                             </div>
+
+                            {/* Custom Infraction Warnings Config */}
+                            <div className="space-y-4 pt-4 border-t border-zinc-900">
+                              <div className="space-y-1">
+                                <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                                  <AlertTriangle className="w-4 h-4 text-brand animate-pulse" />
+                                  Custom Infraction Warnings
+                                </h4>
+                                <p className="text-[9px] text-zinc-500 leading-relaxed">
+                                  Configure the messages sent dynamically when a user triggers AutoMod. Placeholders: <code className="text-brand font-mono">{`{user}`}</code> (user mention), <code className="text-brand font-mono">{`{reason}`}</code> (violation details), <code className="text-brand font-mono">{`{guild}`}</code> (server tag).
+                                </p>
+                              </div>
+
+                              <div className="space-y-3 p-4 bg-zinc-950 border border-zinc-800 rounded-2xl">
+                                <div className="space-y-1.5">
+                                  <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 block px-1">
+                                    Warning DM Message Pattern
+                                  </label>
+                                  <textarea
+                                    value={autoModSettings.warnDMTemplate ?? "⚠️ **You have been warned in {guild}!**\nReason: {reason}"}
+                                    onChange={(e) => updateAutoMod({...autoModSettings, warnDMTemplate: e.target.value})}
+                                    placeholder="e.g. ⚠️ You have been warned in {guild}! Reason: {reason}"
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs focus:border-brand outline-none transition-all text-white placeholder-zinc-600 font-mono h-16 resize-none"
+                                  />
+                                </div>
+
+                                <div className="space-y-4 pt-3 border-t border-zinc-900">
+                                  <div className="space-y-1.5">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 block px-1">
+                                      In-Channel Warning Warning Message
+                                    </label>
+                                    <textarea
+                                      value={autoModSettings.warnChannelTemplate ?? "⚠️ **{user}, you have been warned for {reason}!** Keep our community clean."}
+                                      onChange={(e) => updateAutoMod({...autoModSettings, warnChannelTemplate: e.target.value})}
+                                      placeholder="Leave empty to disable completely, or type e.g. ⚠️ {user} warned for {reason}."
+                                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs focus:border-brand outline-none transition-all text-white placeholder-zinc-600 font-mono h-16 resize-none"
+                                    />
+                                    <p className="text-[8px] text-zinc-600 px-1 italic">
+                                      Sends a public warning notice in the chat where the infraction happened.
+                                    </p>
+                                  </div>
+
+                                  {autoModSettings.warnChannelTemplate && (
+                                    <div className="space-y-3 pt-2.5 border-t border-zinc-900/50">
+                                      <div className="flex items-center justify-between">
+                                        <div className="space-y-0.5">
+                                          <label className="text-[10px] font-bold text-zinc-300">Auto-Delete In-Channel Warning</label>
+                                          <p className="text-[9px] text-zinc-500">Enable to automatically delete the warning announcement.</p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => updateAutoMod({...autoModSettings, warnChannelDelete: !autoModSettings.warnChannelDelete})}
+                                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                            autoModSettings.warnChannelDelete ? "bg-brand" : "bg-zinc-800"
+                                          }`}
+                                        >
+                                          <span
+                                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                                              autoModSettings.warnChannelDelete ? "translate-x-4" : "translate-x-0"
+                                            }`}
+                                          />
+                                        </button>
+                                      </div>
+
+                                      {autoModSettings.warnChannelDelete && (
+                                        <div className="space-y-1.5 pl-1">
+                                          <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex justify-between">
+                                            <span>Notice Delete Delay (Seconds)</span>
+                                            <span className="text-brand font-mono">{autoModSettings.warnChannelDeleteDelay ?? 10}s</span>
+                                          </label>
+                                          <input
+                                            type="number"
+                                            min="2"
+                                            max="300"
+                                            value={autoModSettings.warnChannelDeleteDelay ?? 10}
+                                            onChange={(e) => updateAutoMod({...autoModSettings, warnChannelDeleteDelay: Math.max(2, parseInt(e.target.value) || 2)})}
+                                            className="w-24 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-xs focus:border-brand outline-none text-white font-mono"
+                                          />
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
