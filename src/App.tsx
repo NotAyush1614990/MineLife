@@ -2080,6 +2080,26 @@ export default function App() {
                                           />
                                         </div>
                                       )}
+
+                                      <div className="flex items-center justify-between pt-2.5 border-t border-zinc-900/50">
+                                        <div className="space-y-0.5">
+                                          <label className="text-[10px] font-bold text-zinc-300">Mention/Ping Warned User</label>
+                                          <p className="text-[9px] text-zinc-500">Pings the user directly instead of writing their plain text username.</p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => updateAutoMod({...autoModSettings, warnMentionUser: autoModSettings.warnMentionUser !== false ? false : true})}
+                                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                            autoModSettings.warnMentionUser !== false ? "bg-brand" : "bg-zinc-800"
+                                          }`}
+                                        >
+                                          <span
+                                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                                              autoModSettings.warnMentionUser !== false ? "translate-x-4" : "translate-x-0"
+                                            }`}
+                                          />
+                                        </button>
+                                      </div>
                                     </div>
                                   )}
                                 </div>

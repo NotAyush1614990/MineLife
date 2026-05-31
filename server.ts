@@ -137,6 +137,7 @@ const DEFAULT_AUTOMOD_SETTINGS = {
   warnChannelTemplate: "⚠️ **{user}, you have been warned for {reason}!** Keep our community clean.",
   warnChannelDelete: true,
   warnChannelDeleteDelay: 10,
+  warnMentionUser: true,
   wordFilter: [], 
   badWordFilter: true,
   badWordList: [
@@ -765,8 +766,9 @@ client.on("messageCreate", async (message) => {
 
         // Also post in-channel warning alert if defined
         if (guildSettings.warnChannelTemplate) {
+          const userStr = guildSettings.warnMentionUser !== false ? `<@${member.id}>` : `**${member.user.username}**`;
           const warnText = guildSettings.warnChannelTemplate
-            .replace(/\{user\}/g, `<@${member.id}>`)
+            .replace(/\{user\}/g, userStr)
             .replace(/\{guild\}/g, message.guild.name)
             .replace(/\{reason\}/g, reason);
             
