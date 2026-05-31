@@ -1760,6 +1760,8 @@ export default function App() {
                             onBypassPermissionsChange={(v) => updateAutoMod({...autoModSettings, inviteFilterBypassPermissions: v})}
                             availableRoles={availableRoles}
                             botPerms={botPerms}
+                            forwardLink={autoModSettings.inviteForwardLink}
+                            onForwardLinkChange={(v) => updateAutoMod({...autoModSettings, inviteForwardLink: v})}
                           />
                         </div>
 
@@ -2934,14 +2936,17 @@ function AutoModGroup({
   icon, title, desc, active, onToggle, actions, onActionsChange, 
   bypassRoles, onBypassRolesChange, 
   bypassPermissions, onBypassPermissionsChange,
-  availableRoles, botPerms, extra 
+  availableRoles, botPerms, extra,
+  forwardLink, onForwardLinkChange
 }: { 
   icon: React.ReactNode; title: string; desc: string; active: boolean; onToggle: (v: boolean) => void; 
   actions?: any; onActionsChange?: (v: any) => void; 
   bypassRoles?: string[]; onBypassRolesChange?: (v: string[]) => void;
   bypassPermissions?: string[]; onBypassPermissionsChange?: (v: string[]) => void;
   availableRoles: any[];
-  botPerms: any, extra?: React.ReactNode 
+  botPerms: any; extra?: React.ReactNode;
+  forwardLink?: string;
+  onForwardLinkChange?: (v: string) => void;
 }) {
   const [showBypass, setShowBypass] = useState(false);
   const COMMON_BYPASS_PERMS = ["ManageMessages", "ModerateMembers", "ManageGuild", "ManageChannels"];
@@ -3038,6 +3043,25 @@ function AutoModGroup({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {onForwardLinkChange && (
+            <div className="space-y-2 p-3 bg-zinc-950 border border-zinc-805 rounded-2xl">
+              <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex justify-between px-1">
+                <span>Forward / Redirect Link</span>
+                <ExternalLink className="w-3 h-3 text-brand" />
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. https://discord.gg/your-partner-or-allowed-invite"
+                value={forwardLink || ''}
+                onChange={(e) => onForwardLinkChange(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs focus:border-brand outline-none transition-all text-white placeholder-zinc-600 font-mono"
+              />
+              <p className="text-[9px] text-zinc-500 px-1 leading-relaxed">
+                When an unauthorized invite link is deleted by the interceptor, this official forward link is posted immediately in the chat to redirect users.
+              </p>
             </div>
           )}
 

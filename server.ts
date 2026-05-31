@@ -130,6 +130,7 @@ const DEFAULT_AUTOMOD_SETTINGS = {
   inviteFilterActions: { ...DEFAULT_ACTIONS, warn: false },
   inviteFilterBypassRoles: [],
   inviteFilterBypassPermissions: ["ManageMessages", "ModerateMembers"],
+  inviteForwardLink: "",
   wordFilter: [], 
   badWordFilter: true,
   badWordList: [
@@ -726,6 +727,13 @@ client.on("messageCreate", async (message) => {
           }
         } else {
           await message.delete().catch(() => {});
+        }
+
+        // Post official/forward link of invite if configured
+        if (reason === "Unauthorized invite link" && guildSettings.inviteForwardLink) {
+          await message.channel.send({
+            content: `⚠️ **Unauthorized invite link intercepted, ${message.author}!** Please use our forward/official link instead: ${guildSettings.inviteForwardLink}`
+          }).catch(() => {});
         }
       }
 
