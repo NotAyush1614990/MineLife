@@ -677,6 +677,15 @@ export default function App() {
           }
         })
         .catch(err => console.error(err));
+
+      fetch("/api/commands")
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            setCommandsList(data);
+          }
+        })
+        .catch(err => console.error(err));
     }
     
     if (activeTab === "server_info" && selectedGuildId) {
@@ -2464,10 +2473,18 @@ export default function App() {
                   <div className="p-4 border-b border-zinc-700 bg-zinc-850 flex items-center justify-between">
                     <h3 className="text-xs font-bold tracking-widest flex items-center gap-2 uppercase">
                       {selectedGuildId ? (
-                        <button onClick={() => setSelectedGuildId(null)} className="flex items-center gap-2 hover:text-white transition-colors">
-                          <ArrowLeft className="w-4 h-4" />
-                          Return to Server Clusters
-                        </button>
+                        <div className="flex items-center gap-3">
+                          <button onClick={() => setSelectedGuildId(null)} className="flex items-center gap-2 hover:text-white transition-colors">
+                            <ArrowLeft className="w-4 h-4" />
+                          </button>
+                          <select 
+                            value={selectedGuildId} 
+                            onChange={(e) => setSelectedGuildId(e.target.value)}
+                            className="bg-zinc-900 border border-zinc-700 rounded-md py-1 px-3 text-xs outline-none focus:border-brand transition-colors"
+                          >
+                             {status?.guildList?.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                          </select>
+                        </div>
                       ) : (
                         <>
                           <Activity className="w-4 h-4 text-brand" />
@@ -3483,6 +3500,30 @@ export default function App() {
                             </button>
                           </div>
 
+                          {/* Commands Section Toggle */}
+                          <div className="flex items-center justify-between pt-2 border-t border-zinc-900/60">
+                            <div className="space-y-0.5">
+                              <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5 font-sans">
+                                <Terminal className="w-3.5 h-3.5 text-brand" />
+                                Include Bot Commands Section
+                              </h4>
+                              <p className="text-[10px] text-zinc-500">List all available bot commands in the Rules message.</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => updateRulesSettings({ ...rulesSettings, includeCommandsSection: !rulesSettings.includeCommandsSection })}
+                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                rulesSettings.includeCommandsSection ? "bg-brand" : "bg-zinc-800"
+                              }`}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                                  rulesSettings.includeCommandsSection ? "translate-x-4" : "translate-x-0"
+                                }`}
+                              />
+                            </button>
+                          </div>
+
                           {rulesSettings.includeServerSection && (
                             <div className="space-y-4 pt-2 border-t border-zinc-900/60 grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div className="space-y-1.5 col-span-1 md:col-span-2">
@@ -3864,6 +3905,24 @@ export default function App() {
                                         );
                                       })}
                                     </div>
+                                  )}
+
+                                  {/* Bot Commands Section (Optional) */}
+                                  {rulesSettings.includeCommandsSection && (
+                                     <div className="space-y-1.5 pt-2 border-t border-[#2F3136]/50">
+                                       <div className="font-bold text-xs text-white tracking-tight">
+                                         🤖 Bot Commands
+                                       </div>
+                                       <div className="text-xs text-[#DCE0E3] whitespace-pre-wrap leading-normal space-y-1 font-sans">
+                                          {commandsList.length > 0 ? (
+                                             commandsList.map((cmd: any, idx: number) => (
+                                                <div key={idx}><strong>/{cmd.name}</strong> - {cmd.description}</div>
+                                             ))
+                                          ) : (
+                                            <p className="text-zinc-500 italic">No commands found.</p>
+                                          )}
+                                       </div>
+                                     </div>
                                   )}
 
                                   {/* Embed Footer */}
