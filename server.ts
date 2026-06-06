@@ -1976,8 +1976,10 @@ async function startServer() {
     if (!guild) return res.status(404).json({ error: "Guild not found" });
 
     try {
-      const channels = guild.channels.cache
+      const fetchedChannels = await guild.channels.fetch();
+      const channels = fetchedChannels
         .map(c => {
+          if (!c) return null;
           let typeLabel = "";
           if (c.type === 4) typeLabel = "📁 ";
           else if (c.type === 2) typeLabel = "🔊 ";
@@ -1986,7 +1988,8 @@ async function startServer() {
           else if (c.type === 15) typeLabel = "💬 ";
           else typeLabel = "# ";
           return { id: c.id, name: `${typeLabel}${c.name}`, isText: 'send' in c };
-        });
+        })
+        .filter(Boolean);
       res.json(channels);
     } catch (err: any) {
       console.error("Error fetching channels:", err);
@@ -2058,7 +2061,10 @@ async function startServer() {
     }
 
     try {
-      const channel = guild.channels.cache.get(settings.rulesChannelId);
+      let channel = guild.channels.cache.get(settings.rulesChannelId);
+      if (!channel) {
+        channel = await guild.channels.fetch(settings.rulesChannelId).catch(() => undefined) as any;
+      }
       if (!channel || !('send' in channel)) {
         return res.status(400).json({ error: "The selected channel is not text-capable or cannot receive messages." });
       }
