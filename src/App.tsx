@@ -2448,7 +2448,7 @@ export default function App() {
                             >
                               <option value="">-- Select Discord Channel --</option>
                               {channels.map((ch: any) => (
-                                <option key={ch.id} value={ch.id}>#{ch.name}</option>
+                                <option key={ch.id} value={ch.id}>{ch.name}</option>
                               ))}
                             </select>
                           </div>
@@ -2672,9 +2672,12 @@ export default function App() {
                         <div className="bg-[#313338] rounded-2xl p-4 text-sm font-sans shadow-inner border border-zinc-950 select-none overflow-hidden">
                           {/* Channel Header Mock */}
                           <div className="flex items-center gap-1 text-[#949BA4] text-xs border-b border-[#2B2D31] pb-2 mb-3">
-                            <span className="text-[#80848E] font-bold text-sm">#</span>
                             <span className="font-semibold text-white/90">
-                              {channels.find(c => c.id === rulesSettings.rulesChannelId)?.name || "rules"}
+                              {(() => {
+                                const matched = channels.find(c => c.id === rulesSettings.rulesChannelId);
+                                if (matched) return matched.name;
+                                return "# rules";
+                              })()}
                             </span>
                             <span className="text-[#80848E] mx-1">|</span>
                             <span className="truncate text-[10px]">Follow server regulations.</span>

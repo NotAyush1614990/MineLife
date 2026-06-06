@@ -1977,8 +1977,16 @@ async function startServer() {
 
     try {
       const channels = guild.channels.cache
-        .filter(c => c.isTextBased())
-        .map(c => ({ id: c.id, name: c.name }));
+        .map(c => {
+          let typeLabel = "";
+          if (c.type === 4) typeLabel = "📁 ";
+          else if (c.type === 2) typeLabel = "🔊 ";
+          else if (c.type === 5) typeLabel = "📢 ";
+          else if (c.type === 0) typeLabel = "# ";
+          else if (c.type === 15) typeLabel = "💬 ";
+          else typeLabel = "# ";
+          return { id: c.id, name: `${typeLabel}${c.name}`, isText: 'send' in c };
+        });
       res.json(channels);
     } catch (err: any) {
       console.error("Error fetching channels:", err);
@@ -2051,8 +2059,8 @@ async function startServer() {
 
     try {
       const channel = guild.channels.cache.get(settings.rulesChannelId);
-      if (!channel || !channel.isTextBased() || !('send' in channel)) {
-        return res.status(400).json({ error: "Rules Channel not found or is not a text channel." });
+      if (!channel || !('send' in channel)) {
+        return res.status(400).json({ error: "The selected channel is not text-capable or cannot receive messages." });
       }
 
       // Check permissions
