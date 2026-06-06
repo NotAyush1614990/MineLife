@@ -237,6 +237,122 @@ function saveDB(data: any) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
+async function fetchServerInfoData(guild: any) {
+  let ownerName = "Unknown Owner";
+  try {
+    const owner = await guild.fetchOwner();
+    ownerName = owner ? owner.user.tag : `ID: ${guild.ownerId}`;
+  } catch (err) {
+    ownerName = `ID: ${guild.ownerId}`;
+  }
+
+  const fetchedChannels = await guild.channels.fetch().catch(() => new Map());
+  let categoryCount = 0;
+  let voiceChannelCount = 0;
+  let textChannelCount = 0;
+
+  fetchedChannels.forEach((c: any) => {
+    if (!c) return;
+    if (c.type === 4) categoryCount++;
+    else if (c.type === 2) voiceChannelCount++;
+    else if (c.type === 0 || c.type === 15 || c.type === 5) textChannelCount++;
+  });
+
+  const roles = guild.roles.cache.filter((r: any) => r.name !== "@everyone");
+  const roleCount = roles.size;
+
+  const creationDate = guild.createdAt ? new Date(guild.createdAt).toLocaleDateString("en-US", {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  }) : "Unknown";
+
+  // Guild premium/boost details and verification level formatting
+  const premiumTiers: Record<any, string> = {
+    0: "Level 0",
+    1: "Level 1",
+    2: "Level 2",
+    3: "Level 3",
+    "NONE": "Level 0",
+    "TIER_1": "Level 1",
+    "TIER_2": "Level 2",
+    "TIER_3": "Level 3"
+  };
+  const rawPremiumTier = guild.premiumTier;
+  const boostLevel = premiumTiers[rawPremiumTier] || (rawPremiumTier ? `Level ${rawPremiumTier}` : "Level 0");
+  const boostCount = guild.premiumSubscriptionCount || 0;
+
+  const verificationLevels = ["None", "Low", "Medium", "High", "Highest"];
+  const rawVerif = guild.verificationLevel;
+  let verifLabel = String(rawVerif);
+  if (typeof rawVerif === "number" && rawVerif >= 0 && rawVerif <= 4) {
+    verifLabel = verificationLevels[rawVerif];
+  } else {
+    const sVerif = String(rawVerif).toUpperCase();
+    if (sVerif === "NONE" || sVerif === "0") verifLabel = "None";
+    else if (sVerif === "LOW" || sVerif === "1") verifLabel = "Low";
+    else if (sVerif === "MEDIUM" || sVerif === "2") verifLabel = "Medium";
+    else if (sVerif === "HIGH" || sVerif === "3") verifLabel = "High";
+    else if (sVerif === "VERY_HIGH" || sVerif === "HIGHEST" || sVerif === "4") verifLabel = "Highest";
+  }
+
+  return {
+    server_name: guild.name,
+    server_icon: guild.iconURL({ size: 1024 }) || null,
+    owner_name: ownerName,
+    member_count: guild.memberCount,
+    role_count: roleCount,
+    category_count: categoryCount,
+    text_channel_count: textChannelCount,
+    voice_channel_count: voiceChannelCount,
+    server_id: guild.id,
+    created_at: creationDate,
+    boost_level: boostLevel,
+    boost_count: boostCount,
+    verification_level: verifLabel,
+    rolesList: roles.map((r: any) => ({ id: r.id, name: r.name, color: r.hexColor, position: r.position })).sort((a: any, b: any) => b.position - a.position).slice(0, 40),
+    channelsList: fetchedChannels.map((c: any) => {
+      if (!c) return null;
+      let typeLabel = "#";
+      if (c.type === 4) typeLabel = "📁";
+      else if (c.type === 2) typeLabel = "🔊";
+      else if (c.type === 5) typeLabel = "📢";
+      else if (c.type === 0) typeLabel = "#";
+      else if (c.type === 15) typeLabel = "💬";
+      return { id: c.id, name: c.name, type: typeLabel, position: c.position || 0 };
+    }).filter(Boolean).sort((a: any, b: any) => a.position - b.position).slice(0, 40)
+  };
+}
+
+function createServerInfoEmbed(data: any) {
+  const description = 
+    `🏠 **SERVER SECTION**\n` +
+    `• **Server Name**: **${data.server_name}**\n\n` +
+    `👑 **OWNERSHIP & MEMBERS**\n` +
+    `• **Owner**: ${data.owner_name}\n` +
+    `• **Members**: ${data.member_count.toLocaleString()}\n` +
+    `• **Roles**: ${data.role_count}\n\n` +
+    `📂 **CHANNEL STRUCTURE**\n` +
+    `• **Category Channels**: ${data.category_count}\n` +
+    `• **Text Channels**: ${data.text_channel_count}\n` +
+    `• **Voice Channels**: ${data.voice_channel_count}\n\n` +
+    `🚀 **PREMIUM BOOSTS**\n` +
+    `• **Boost Level**: ${data.boost_level}\n` +
+    `• **Boost Count**: ${data.boost_count} Boosts\n` +
+    `• **Verification Level**: ${data.verification_level}\n\n` +
+    `🆔 **METADATA SECTION**\n` +
+    `• **Server ID**: \`${data.server_id}\`\n` +
+    `• **Server Created**: ${data.created_at}`;
+
+  return new EmbedBuilder()
+    .setTitle(`💎 ${data.server_name} | Server Information`)
+    .setColor(0x00A8FC) // Premium sapphire blue color
+    .setDescription(description)
+    .setThumbnail(data.server_icon)
+    .setFooter({ text: "Premium Bot Quality • Sapphire Design Edition", iconURL: data.server_icon || undefined })
+    .setTimestamp();
+}
+
 function logAction(data: { action: string, targetId: string, targetTag: string, guildId: string, reason: string, moderatorId: string, moderatorTag: string }) {
   const db = getDB();
   db.auditLog.push({
@@ -889,6 +1005,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName("help")
     .setDescription("Display the Cracked Tier Command Manifest"),
+
+  new SlashCommandBuilder()
+    .setName("serverinfo")
+    .setDescription("Display modern, premium Sapphire-style server details"),
 ].map(command => command.toJSON());
 
 async function registerCommands() {
@@ -1383,6 +1503,29 @@ client.on("interactionCreate", async (interaction) => {
       } catch (err: any) {
         logSystem("ERROR", `Unlock failed: ${err.message}`);
         await safeReply(interaction, { content: `Error: Failed to unlock channel. ${err.message}` });
+      }
+    }
+
+    else if (commandName === "serverinfo") {
+      await interaction.deferReply().catch(() => {});
+      try {
+        const infoData = await fetchServerInfoData(guild);
+        const embed = createServerInfoEmbed(infoData);
+        await safeReply(interaction, { embeds: [embed] });
+        
+        logSystem("SUCCESS", `Slash command /serverinfo executed successfully in guild ${guild.name}`);
+        logAction({
+          action: "SERVERINFO",
+          targetId: guild.id,
+          targetTag: guild.name,
+          guildId: guild.id,
+          reason: "Executed /serverinfo Slash Command",
+          moderatorId: interaction.user.id,
+          moderatorTag: interaction.user.tag
+        });
+      } catch (err: any) {
+        logSystem("ERROR", `Failed to run /serverinfo: ${err.message}`);
+        await safeReply(interaction, { content: `Error: Failed to fetch server info. ${err.message}`, ephemeral: true });
       }
     }
 
@@ -1994,6 +2137,62 @@ async function startServer() {
     } catch (err: any) {
       console.error("Error fetching channels:", err);
       res.status(500).json({ error: "Failed to load channels" });
+    }
+  });
+
+  app.get("/api/guild/:guildId/server-info", async (req, res) => {
+    const { guildId } = req.params;
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+    try {
+      const data = await fetchServerInfoData(guild);
+      res.json(data);
+    } catch (err: any) {
+      console.error("Error fetching detailed server-info:", err);
+      res.status(500).json({ error: "Failed to fetch detailed server information", message: err.message });
+    }
+  });
+
+  app.post("/api/guild/:guildId/server-info/send", express.json(), async (req, res) => {
+    const { guildId } = req.params;
+    const { channelId } = req.body;
+    
+    if (!channelId) {
+      return res.status(400).json({ error: "Please select a valid channel to broadcast the server info." });
+    }
+    
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+    try {
+      const channel = await guild.channels.fetch(channelId).catch(() => undefined);
+      if (!channel || !('send' in channel)) {
+        return res.status(400).json({ error: "The chosen channel is invalid or bot does not have access/permissions." });
+      }
+
+      const infoData = await fetchServerInfoData(guild);
+      const embed = createServerInfoEmbed(infoData);
+      
+      const sentMsg = await (channel as any).send({ embeds: [embed] });
+
+      logSystem("SUCCESS", `Server Info embed message successfully transmitted to channel: ${channel.name || channel.id}`);
+      
+      logAction({
+        action: "send-server-info",
+        targetId: channel.id,
+        targetTag: `#${channel.name || 'unknown-channel'}`,
+        guildId: guildId,
+        reason: "Dispatched system server info card from control dashboard",
+        moderatorId: "ADMIN-DASHBOARD",
+        moderatorTag: "Web Console Administrator"
+      });
+
+      res.json({ success: true, messageId: sentMsg.id });
+    } catch (err: any) {
+      console.error("Failed to transmit server info embed:", err);
+      logSystem("ERROR", `Failed to transmit server info embed: ${err.message}`);
+      res.status(500).json({ error: "Failed to send server info message", message: err.message });
     }
   });
 

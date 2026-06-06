@@ -96,6 +96,37 @@ export default function App() {
   const [savingAutoMod, setSavingAutoMod] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
 
+  // Server Info Tab State variables
+  const [serverInfo, setServerInfo] = useState<any>(null);
+  const [loadingServerInfo, setLoadingServerInfo] = useState(false);
+  const [serverInfoError, setServerInfoError] = useState<string | null>(null);
+  const [isViewingRoles, setIsViewingRoles] = useState(false);
+  const [isViewingChannels, setIsViewingChannels] = useState(false);
+  const [selectedBroadcastChannelId, setSelectedBroadcastChannelId] = useState("");
+  const [broadcastingServerInfo, setBroadcastingServerInfo] = useState(false);
+  const [broadcastSuccess, setBroadcastSuccess] = useState<string | null>(null);
+  const [serverSearchQuery, setServerSearchQuery] = useState("");
+  const [infoServerDropdownOpen, setInfoServerDropdownOpen] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const fetchServerInfo = async (explicitGuildId?: string) => {
+    const guildId = explicitGuildId || selectedGuildId;
+    if (!guildId) return;
+    setLoadingServerInfo(true);
+    setServerInfoError(null);
+    try {
+      const res = await fetch(`/api/guild/${guildId}/server-info`);
+      if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+      const data = await res.json();
+      setServerInfo(data);
+    } catch (err: any) {
+      console.error("Error fetching detailed server info:", err);
+      setServerInfoError(err.message || "Failed to fetch server information");
+    } finally {
+      setLoadingServerInfo(false);
+    }
+  };
+
   const [isTestingGemini, setIsTestingGemini] = useState(false);
   const [geminiTestResult, setGeminiTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -541,7 +572,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (activeTab === "rules_setup" && status?.guildList) {
+    if ((activeTab === "rules_setup" || activeTab === "server_info") && status?.guildList) {
       const manageable = getManageableGuilds();
       if (selectedGuildId && !manageable.some(g => g.id === selectedGuildId)) {
         if (manageable.length > 0) {
@@ -645,6 +676,10 @@ export default function App() {
           }
         })
         .catch(err => console.error(err));
+    }
+    
+    if (activeTab === "server_info" && selectedGuildId) {
+      fetchServerInfo(selectedGuildId);
     }
   }, [activeTab, selectedGuildId]);
 
@@ -875,6 +910,14 @@ export default function App() {
           >
             <div className={`w-1.5 h-1.5 rounded-full ${activeTab === "servers" ? "bg-brand animate-pulse" : "bg-zinc-600"}`}></div>
             Bot Servers
+          </button>
+
+          <button 
+            onClick={() => setActiveTab("server_info")}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-all ${activeTab === "server_info" ? "bg-zinc-700/50 text-white border border-zinc-600/50 shadow-lg shadow-black/20" : "text-zinc-400 hover:bg-zinc-800"}`}
+          >
+            <div className={`w-1.5 h-1.5 rounded-full ${activeTab === "server_info" ? "bg-brand animate-pulse" : "bg-zinc-600"}`}></div>
+            Server Info Card
           </button>
           
           <button 
@@ -1147,8 +1190,711 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+
+                    <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 space-y-4">
+                      <h3 className="text-[10px] font-bold tracking-widest uppercase border-b border-zinc-800 pb-3 text-zinc-500 flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-brand" />
+                        Bot Server Info
+                      </h3>
+                      <p className="text-xs text-zinc-400 font-medium leading-relaxed">
+                        Analyze detailed metadata, owner identities, and channel structure counts on active Discord Guild servers.
+                      </p>
+                      <button
+                        onClick={() => setActiveTab("server_info")}
+                        className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-black text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-brand" />
+                        View Server Info Card
+                      </button>
+                    </div>
                   </div>
                 </div>
+              </motion.div>
+            )}
+
+            {activeTab === "server_info" && (
+              <motion.div 
+                key="server_info"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {/* 🖥️ SERVER SELECTION SECTION */}
+                <div className="bg-zinc-800 rounded-3xl border border-zinc-700 p-6 shadow-2xl relative">
+                  <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                    <div>
+                      <h4 className="text-xs font-black uppercase text-brand tracking-widest flex items-center gap-2">
+                        <span>🖥️</span> Select Server
+                      </h4>
+                      <p className="text-[10px] text-zinc-500 font-bold uppercase mt-0.5">
+                        Interactive Administration & Metrics Gateway
+                      </p>
+                    </div>
+                    {/* Access level signal */}
+                    <div className="flex items-center gap-3">
+                      <span className="px-2 py-0.5 bg-brand/10 text-brand text-[9px] font-black tracking-widest uppercase border border-brand/10 rounded-md">
+                        {simulatedUserRole === 'admin' ? "👑 Admin Permission: ALL" : "🛡️ Mod Permission: Restricted"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    {/* Selector button trigger */}
+                    <button
+                      type="button"
+                      onClick={() => setInfoServerDropdownOpen(!infoServerDropdownOpen)}
+                      className="w-full bg-zinc-900 border border-zinc-700/80 hover:border-brand/50 rounded-2xl p-4 text-left text-sm text-zinc-100 flex items-center justify-between transition-all outline-none focus:border-brand cursor-pointer relative"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {serverInfo?.server_icon ? (
+                          <img 
+                            src={serverInfo.server_icon} 
+                            alt="" 
+                            className="w-7 h-7 rounded-full object-cover border border-zinc-700 shrink-0" 
+                            referrerPolicy="no-referrer" 
+                          />
+                        ) : (
+                          <div className="w-7 h-7 rounded-full bg-brand/15 text-brand flex items-center justify-center font-black text-xs shrink-0 select-none border border-brand/20">
+                            {serverInfo?.server_name?.[0] || "?"}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="font-extrabold text-[#f2f3f5] truncate text-sm">
+                            {serverInfo?.server_name || "Select a discord server..."}
+                          </p>
+                          {serverInfo && (
+                            <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-tight flex items-center gap-1.5 mt-0.5">
+                              <span>👥 {serverInfo.member_count.toLocaleString()} Members</span>
+                              <span className="text-zinc-600">•</span>
+                              <span className="font-mono text-[9px]">{serverInfo.server_id}</span>
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-zinc-500 shrink-0">
+                        <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${infoServerDropdownOpen ? "rotate-180 text-brand" : ""}`} />
+                      </div>
+                    </button>
+
+                    {/* Popover Dropdown Overlay */}
+                    <AnimatePresence>
+                      {infoServerDropdownOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 8 }}
+                          className="absolute left-0 right-0 mt-2 bg-[#1e1f22] border border-[#35363c] rounded-2xl shadow-2xl z-40 overflow-hidden"
+                        >
+                          {/* Search Input filter bar */}
+                          <div className="p-3 border-b border-[#2b2d31] bg-zinc-950/40 flex items-center gap-2">
+                            <Search className="w-4 h-4 text-zinc-500 ml-1.5" />
+                            <input
+                              type="text"
+                              value={serverSearchQuery}
+                              onChange={(e) => setServerSearchQuery(e.target.value)}
+                              placeholder="Search bot-connected servers..."
+                              className="w-full bg-transparent text-xs text-white border-none outline-none placeholder-zinc-500 py-1.5 focus:ring-0 font-medium font-sans"
+                            />
+                            {serverSearchQuery && (
+                              <button
+                                onClick={() => setServerSearchQuery("")}
+                                className="text-zinc-500 hover:text-white text-xs font-bold font-sans"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+
+                          {/* List of active bot servers */}
+                          <div className="max-h-64 overflow-y-auto p-1.5 space-y-0.5 custom-scrollbar">
+                            <div className="text-[10px] font-black uppercase text-zinc-500 tracking-wider px-2.5 py-1.5 border-b border-[#2b2d31]/40 flex justify-between items-center">
+                              <span>🖥️ SELECT SERVER</span>
+                              <span className="text-[8px] text-brand bg-brand/10 px-1.5 py-0.5 rounded border border-brand/10 font-bold uppercase tracking-wider">Alphabetical</span>
+                            </div>
+
+                            {(() => {
+                              const filtered = (status?.guildList || [])
+                                .filter((g, idx) => {
+                                  // Show only servers where user has Administrator permission:
+                                  // Admin role has access to all bot guilds.
+                                  // Moderator role has access only to the first guild.
+                                  if (simulatedUserRole === 'admin') return true;
+                                  return idx === 0;
+                                })
+                                .filter(g => g.name.toLowerCase().includes(serverSearchQuery.toLowerCase()))
+                                .sort((a, b) => a.name.localeCompare(b.name));
+
+                              if (filtered.length === 0) {
+                                return (
+                                  <div className="py-8 text-center text-zinc-500 text-xs font-bold uppercase tracking-wider font-sans">
+                                    No Authorized Servers Found
+                                  </div>
+                                );
+                              }
+
+                              return filtered.map((guild) => {
+                                const isCurrent = selectedGuildId === guild.id;
+                                return (
+                                  <button
+                                    key={guild.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedGuildId(guild.id);
+                                      setInfoServerDropdownOpen(false);
+                                      setServerSearchQuery("");
+                                    }}
+                                    className={`w-full p-2.5 rounded-xl text-left flex items-center justify-between transition-all group ${
+                                      isCurrent 
+                                        ? "bg-brand/15 border border-brand/20" 
+                                        : "hover:bg-[#2b2d31] border border-transparent"
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      {guild.icon ? (
+                                        <img 
+                                          src={guild.icon} 
+                                          alt="" 
+                                          className="w-7 h-7 rounded-full object-cover border border-[#2b2d31] shrink-0" 
+                                          referrerPolicy="no-referrer"
+                                        />
+                                      ) : (
+                                        <div className="w-7 h-7 rounded-full bg-brand/10 text-brand font-black text-xs flex items-center justify-center shrink-0 border border-brand/15 select-none">
+                                          {guild.name[0]}
+                                        </div>
+                                      )}
+                                      <div className="min-w-0">
+                                        <p className="font-extrabold text-xs text-[#f2f3f5] truncate group-hover:text-white transition-colors">
+                                          {guild.name}
+                                        </p>
+                                        <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-tight mt-0.5">
+                                          ({guild.memberCount.toLocaleString()} Members)
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="text-right shrink-0">
+                                      <p className="font-mono text-[9px] text-zinc-500 group-hover:text-zinc-400 font-medium select-all">
+                                        ID: {guild.id}
+                                      </p>
+                                      <p className="text-[8px] font-black tracking-widest text-[#00A8FC] uppercase scale-90 origin-right mt-0.5">
+                                        Bot Join Active
+                                      </p>
+                                    </div>
+                                  </button>
+                                );
+                              });
+                            })()}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-800 rounded-3xl border border-zinc-700 overflow-hidden shadow-2xl">
+                  {/* Card Header Banner */}
+                  <div className="p-6 border-b border-zinc-700 bg-zinc-850 flex items-center justify-between flex-wrap gap-4">
+                    <div>
+                      <h3 className="text-sm font-bold tracking-widest flex items-center gap-2 uppercase text-white">
+                        <ShieldCheck className="w-5 h-5 text-brand" />
+                        PREMIUM DISCORD REAL-TIME INTEL
+                      </h3>
+                      <p className="text-[10px] text-zinc-500 font-bold uppercase mt-1">
+                        High-Fidelity Sapphire Server Analyzer
+                      </p>
+                    </div>
+                    {/* Control Buttons */}
+                    <div className="flex gap-2.5">
+                      <button
+                        onClick={() => fetchServerInfo()}
+                        disabled={loadingServerInfo}
+                        className="px-4 py-2 bg-zinc-750 hover:bg-zinc-750/80 text-zinc-200 border border-zinc-700 font-extrabold text-xs uppercase tracking-widest rounded-xl transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 disabled:opacity-45"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${loadingServerInfo ? "animate-spin text-brand" : "text-zinc-400"}`} />
+                        {loadingServerInfo ? "Syncing..." : "Refresh Info"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-6 bg-zinc-900/50 space-y-6">
+                    {loadingServerInfo && !serverInfo ? (
+                      <div className="py-16 text-center space-y-3">
+                        <RefreshCw className="w-8 h-8 text-brand animate-spin mx-auto" />
+                        <p className="text-xs text-zinc-500 uppercase tracking-widest font-black animate-pulse">
+                          Fetching Secure Discord Audit Metrics...
+                        </p>
+                      </div>
+                    ) : serverInfoError ? (
+                      <div className="bg-rose-950/40 p-6 rounded-2xl border border-rose-900/60 text-center space-y-3">
+                        <AlertTriangle className="w-8 h-8 text-rose-500 mx-auto" />
+                        <div>
+                          <p className="text-sm font-bold text-white uppercase tracking-wider">Failed to Synchronize Telemetry</p>
+                          <p className="text-xs text-rose-450 font-medium mt-1">{serverInfoError}</p>
+                        </div>
+                        <button
+                          onClick={() => fetchServerInfo()}
+                          className="px-4 py-2 bg-rose-600/20 hover:bg-rose-600 text-rose-200 font-bold rounded-xl text-xs uppercase tracking-wide border border-rose-900 transition-all active:scale-95 mx-auto"
+                        >
+                          Retry Connection
+                        </button>
+                      </div>
+                    ) : serverInfo ? (
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                        {/* Discord Embed Preview Container */}
+                        <div className="lg:col-span-12 xl:col-span-7 space-y-4">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase text-zinc-500 tracking-widest font-sans flex items-center gap-1">
+                              <Eye className="w-3.5 h-3.5 text-brand" />
+                              Discord Simulated Channel Broadcast
+                            </span>
+                            <span className="text-[9px] font-mono text-zinc-500 font-bold">1:1 MATCH PREVIEW</span>
+                          </div>
+
+                          {/* Discord message format */}
+                          <div id="discord_preview_card" className="w-full bg-[#313338] text-[#dbdee1] p-4 rounded-xl shadow-2xl font-sans border border-[#2b2d31] relative overflow-hidden select-none">
+                            {/* User details header (the bot sending the message) */}
+                            <div className="flex items-start gap-4 mb-2.5">
+                              <div className="w-10 h-10 rounded-full bg-[#1e1f22] border border-[#2b2d31] overflow-hidden shrink-0 flex items-center justify-center">
+                                <img src={logo} alt="Bot Avatar" className="w-full h-full object-cover" />
+                              </div>
+                              <div className="space-y-0.5 min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-extrabold text-[14.5px] text-white hover:underline cursor-pointer">
+                                    {status?.botName?.split("#")[0] || "MineLife"}
+                                  </span>
+                                  <span className="bg-[#5865F2] text-[9.5px] text-white font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider scale-90">
+                                    BOT
+                                  </span>
+                                  <span className="text-[11px] text-zinc-400 font-black">Today at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
+                                <p className="text-[12px] text-zinc-400 leading-tight">Dispatched live server info manifest.</p>
+                              </div>
+                            </div>
+
+                            {/* Embed itself */}
+                            <div className="md:ml-14 flex items-stretch">
+                              {/* Left border line */}
+                              <div className="w-1 bg-[#00A8FC] rounded-l-md shrink-0" />
+
+                              {/* Embed content wrapper */}
+                              <div className="bg-[#2B2D31] p-4 rounded-r-md flex-1 flex flex-col md:flex-row gap-4 justify-between items-start overflow-hidden">
+                                {/* Details column */}
+                                <div className="space-y-4 flex-1 min-w-0">
+                                  {/* Author / Title */}
+                                  <div>
+                                    <h4 className="text-[15.5px] font-bold text-white tracking-wide hover:underline cursor-pointer flex items-center gap-2 truncate">
+                                      💎 {serverInfo.server_name} | Server Information
+                                    </h4>
+                                  </div>
+
+                                  {/* Embed Layout Fields organized into structured, premium Sections */}
+                                  <div className="space-y-4 text-[13px] font-sans text-[#dbdee1]">
+                                    {/* 🏠 SERVER SECTION */}
+                                    <div className="bg-[#1e1f22]/30 p-3 rounded-lg border border-[#35363c]/30 space-y-1.5">
+                                      <h5 className="text-[11px] font-extrabold uppercase tracking-widest text-[#00A8FC] mb-2 flex items-center gap-1.5">
+                                        <span>🏠</span> SERVER SECTION
+                                      </h5>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
+                                          <span className="text-zinc-500">•</span>
+                                          <span>
+                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Server Name:</strong>{" "}
+                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.server_name}</span>
+                                          </span>
+                                        </p>
+                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
+                                          <span className="text-zinc-500">•</span>
+                                          <span>
+                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Verification Level:</strong>{" "}
+                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.verification_level || "None"}</span>
+                                          </span>
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    {/* Grid for Member & Channel Sections */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      {/* 👥 MEMBER SECTION */}
+                                      <div className="bg-[#1e1f22]/30 p-3 rounded-lg border border-[#35363c]/30 space-y-1.5">
+                                        <h5 className="text-[11px] font-extrabold uppercase tracking-widest text-[#00A8FC] mb-2 flex items-center gap-1.5">
+                                          <span>👥</span> MEMBER SECTION
+                                        </h5>
+                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
+                                          <span className="text-zinc-500">•</span>
+                                          <span>
+                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Owner:</strong>{" "}
+                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.owner_name}</span>
+                                          </span>
+                                        </p>
+                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
+                                          <span className="text-zinc-500">•</span>
+                                          <span>
+                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Members:</strong>{" "}
+                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.member_count.toLocaleString()}</span>
+                                          </span>
+                                        </p>
+                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
+                                          <span className="text-zinc-500">•</span>
+                                          <span>
+                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Roles:</strong>{" "}
+                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.role_count}</span>
+                                          </span>
+                                        </p>
+                                      </div>
+
+                                      {/* 📂 CHANNEL SECTION */}
+                                      <div className="bg-[#1e1f22]/30 p-3 rounded-lg border border-[#35363c]/30 space-y-1.5">
+                                        <h5 className="text-[11px] font-extrabold uppercase tracking-widest text-[#00A8FC] mb-2 flex items-center gap-1.5">
+                                          <span>📂</span> CHANNEL SECTION
+                                        </h5>
+                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
+                                          <span className="text-zinc-500">•</span>
+                                          <span>
+                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Category Channels:</strong>{" "}
+                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.category_count}</span>
+                                          </span>
+                                        </p>
+                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
+                                          <span className="text-zinc-500">•</span>
+                                          <span>
+                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Text Channels:</strong>{" "}
+                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.text_channel_count}</span>
+                                          </span>
+                                        </p>
+                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
+                                          <span className="text-zinc-500">•</span>
+                                          <span>
+                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Voice Channels:</strong>{" "}
+                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.voice_channel_count}</span>
+                                          </span>
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    {/* 🚀 PRESTIGE BOOST SECTION & 🆔 METADATA SECTION */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      {/* Boosting info */}
+                                      <div className="bg-[#1e1f22]/30 p-3 rounded-lg border border-[#35363c]/30 space-y-1.5">
+                                        <h5 className="text-[11px] font-extrabold uppercase tracking-widest text-[#00A8FC] mb-2 flex items-center gap-1.5">
+                                          <span>🚀</span> BOOST SECTION
+                                        </h5>
+                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
+                                          <span className="text-zinc-500">•</span>
+                                          <span>
+                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Boost Level:</strong>{" "}
+                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.boost_level || "Level 0"}</span>
+                                          </span>
+                                        </p>
+                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
+                                          <span className="text-zinc-500">•</span>
+                                          <span>
+                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Boost Count:</strong>{" "}
+                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.boost_count || 0} Boosts</span>
+                                          </span>
+                                        </p>
+                                      </div>
+
+                                      {/* Metadata info */}
+                                      <div className="bg-[#1e1f22]/30 p-3 rounded-lg border border-[#35363c]/30 space-y-1.5">
+                                        <h5 className="text-[11px] font-extrabold uppercase tracking-widest text-[#00A8FC] mb-2 flex items-center gap-1.5">
+                                          <span>🆔</span> METADATA SECTION
+                                        </h5>
+                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
+                                          <span className="text-zinc-500">•</span>
+                                          <span>
+                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Server ID:</strong>{" "}
+                                            <code className="bg-[#1e1f22] px-1.5 py-0.5 rounded text-[#f2f3f5] font-mono text-[11px] font-bold select-all">
+                                              {serverInfo.server_id}
+                                            </code>
+                                          </span>
+                                        </p>
+                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
+                                          <span className="text-zinc-500">•</span>
+                                          <span>
+                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Server Created:</strong>{" "}
+                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.created_at}</span>
+                                          </span>
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Embed Footer Text */}
+                                  <div className="flex items-center gap-1.5 mt-2 pt-1">
+                                    {serverInfo.server_icon && (
+                                      <img src={serverInfo.server_icon} className="w-4 h-4 rounded-full select-none" referrerPolicy="no-referrer" />
+                                    )}
+                                    <span className="text-[11px] font-black text-[#949ba4] uppercase tracking-wider">
+                                      Premium Bot Quality • Sapphire Design Edition
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Server Icon Thumbnail displayed on the right */}
+                                {serverInfo.server_icon && (
+                                  <div className="w-16 h-16 rounded-md bg-[#1e1f22] border border-[#2b2d31] overflow-hidden shrink-0 hidden md:block group relative self-start">
+                                    <img src={serverInfo.server_icon} alt="Server Icon Thumbnail" className="w-full h-full object-cover scale-110 opacity-90" referrerPolicy="no-referrer" />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                             {/* Simulated Buttons inside Discord block */}
+                            <div className="md:ml-14 mt-4 flex flex-wrap gap-2 pt-2 border-t border-[#35363c]/50">
+                              <button
+                                type="button"
+                                onClick={() => setIsViewingRoles(true)}
+                                className="px-4 py-1.5 bg-[#4e5058] hover:bg-[#6d6f78] text-white font-bold text-xs rounded-md transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shadow"
+                              >
+                                <Layers className="w-3.5 h-3.5 text-zinc-300" />
+                                View Roles
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setIsViewingChannels(true)}
+                                className="px-4 py-1.5 bg-[#4e5058] hover:bg-[#6d6f78] text-white font-bold text-xs rounded-md transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shadow"
+                              >
+                                <BookOpen className="w-3.5 h-3.5 text-zinc-300" />
+                                View Channels
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => fetchServerInfo()}
+                                className="px-4 py-1.5 bg-[#4e5058] hover:bg-[#6d6f78] text-white font-bold text-xs rounded-md transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shadow"
+                              >
+                                <RefreshCw className={`w-3.5 h-3.5 text-zinc-300 ${loadingServerInfo ? "animate-spin text-brand" : ""}`} />
+                                Refresh Info
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (serverInfo?.server_id) {
+                                    navigator.clipboard.writeText(serverInfo.server_id);
+                                    setCopiedId(serverInfo.server_id);
+                                    setTimeout(() => setCopiedId(null), 1500);
+                                  }
+                                }}
+                                className="px-4 py-1.5 bg-zinc-750 hover:bg-zinc-700 text-white font-bold text-xs rounded-md transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shadow relative border border-zinc-650"
+                              >
+                                {copiedId === serverInfo.server_id ? (
+                                  <>
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 font-bold" />
+                                    <span>Copied!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Database className="w-3.5 h-3.5 text-zinc-350" />
+                                    <span>Copy Server ID</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Interactive Remote Controller dispatch deck */}
+                        <div className="lg:col-span-12 xl:col-span-5 space-y-6">
+                          <div className="bg-zinc-950/60 p-5 rounded-2xl border border-zinc-850 space-y-4">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 bg-brand rounded-full animate-pulse" />
+                              <span className="text-[10px] font-black uppercase text-brand tracking-widest">
+                                Remote Transmitter Console
+                              </span>
+                            </div>
+
+                            <p className="text-xs text-zinc-400 font-medium leading-relaxed">
+                              Send this exact premium server info card directly into any available text channel as a bot embed message! This bridges your dashboard directly to discord.
+                            </p>
+
+                            <div className="space-y-2">
+                              <label className="text-[9px] font-black uppercase text-zinc-500 tracking-wider">
+                                Target Channel Selector
+                              </label>
+                              <select
+                                value={selectedBroadcastChannelId}
+                                onChange={(e) => {
+                                  setSelectedBroadcastChannelId(e.target.value);
+                                  setBroadcastSuccess(null);
+                                }}
+                                className="w-full px-3.5 py-3 bg-zinc-900 border border-zinc-800 text-sm font-bold text-zinc-200 rounded-xl focus:outline-none focus:border-brand transition-colors cursor-pointer"
+                              >
+                                <option value="">-- Choose target channel --</option>
+                                {channels.map((chan) => (
+                                  <option key={chan.id} value={chan.id}>
+                                    {chan.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!selectedBroadcastChannelId) return;
+                                setBroadcastingServerInfo(true);
+                                setBroadcastSuccess(null);
+                                try {
+                                  const res = await fetch(`/api/guild/${selectedGuildId}/server-info/send`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ channelId: selectedBroadcastChannelId })
+                                  });
+                                  const ans = await res.json();
+                                  if (!res.ok) throw new Error(ans.error || "Unknown Error");
+                                  setBroadcastSuccess(`Message transmitted successfully! ID: ${ans.messageId}`);
+                                } catch (e: any) {
+                                  alert(e.message || "Failed to broadcast embed.");
+                                } finally {
+                                  setBroadcastingServerInfo(false);
+                                }
+                              }}
+                              disabled={broadcastingServerInfo || !selectedBroadcastChannelId}
+                              className="w-full py-3.5 bg-gradient-to-r from-brand to-cyan-600 hover:from-brand/90 hover:to-cyan-500 text-white font-extrabold text-[11px] uppercase tracking-widest rounded-xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                            >
+                              <Send className={`w-4 h-4 ${broadcastingServerInfo ? "animate-pulse" : ""}`} />
+                              {broadcastingServerInfo ? "Transmitting..." : "Send Server Info"}
+                            </button>
+
+                            {broadcastSuccess && (
+                              <div className="flex items-center gap-2 p-3 bg-emerald-950/40 rounded-xl border border-emerald-900/50 text-[11px] font-black uppercase text-emerald-400 tracking-wider">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                {broadcastSuccess}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Quick statistics checklist */}
+                          <div className="bg-zinc-800/40 p-5 rounded-2xl border border-zinc-700/60 space-y-3.5 select-none">
+                            <span className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block border-b border-zinc-700 pb-1.5">
+                              Server Quick Intel Summary
+                            </span>
+
+                            <div className="grid grid-cols-2 gap-3.5 text-xs">
+                              <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
+                                <span className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-0.5">GUILD NAME</span>
+                                <span className="font-extrabold text-white truncate block">{serverInfo.server_name}</span>
+                              </div>
+                              <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
+                                <span className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-0.5">OWNER TAG</span>
+                                <span className="font-extrabold text-brand truncate block">{serverInfo.owner_name}</span>
+                              </div>
+                              <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
+                                <span className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-0.5">TOTAL USERS</span>
+                                <span className="font-extrabold text-emerald-400 block">{serverInfo.member_count.toLocaleString()} Users</span>
+                              </div>
+                              <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
+                                <span className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-0.5">HIERARCHY ROLES</span>
+                                <span className="font-extrabold text-cyan-400 block">{serverInfo.role_count} Active</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="py-16 text-center text-zinc-500 uppercase tracking-widest text-[11px] font-bold">
+                        Please select a Server to load Server Info Card
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Sub-panel/Modal for viewing roles list */}
+                {isViewingRoles && serverInfo && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+                    <motion.div 
+                      initial={{ scale: 0.95, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className="bg-zinc-900 border border-zinc-800 max-w-lg w-full rounded-2xl overflow-hidden shadow-2xl"
+                    >
+                      <div className="p-5 border-b border-zinc-800 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Layers className="w-5 h-5 text-brand" />
+                          <h3 className="text-sm font-black uppercase tracking-wider text-white">
+                            Role Intel ({serverInfo.role_count} total)
+                          </h3>
+                        </div>
+                        <button onClick={() => setIsViewingRoles(false)} className="text-zinc-500 hover:text-white transition-colors">
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                      <div className="p-5 max-h-[350px] overflow-y-auto space-y-2">
+                        {serverInfo.rolesList && serverInfo.rolesList.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {serverInfo.rolesList.map((role: any) => (
+                              <span 
+                                key={role.id}
+                                style={{ borderColor: role.color ? `${role.color}40` : '#3f3f46', color: role.color || '#f4f4f5' }}
+                                className="px-2.5 py-1 text-xs border bg-zinc-950 font-bold rounded-lg flex items-center gap-1.5 select-all"
+                              >
+                                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: role.color || '#fff' }} />
+                                {role.name}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-zinc-500 font-bold text-center py-4 uppercase tracking-widest">No roles fetched</p>
+                        )}
+                      </div>
+                      <div className="p-4 bg-zinc-950/60 border-t border-zinc-800 text-right">
+                        <button 
+                          onClick={() => setIsViewingRoles(false)} 
+                          className="px-4 py-2 bg-zinc-850 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 font-extrabold text-xs uppercase tracking-widest rounded-xl transition-all cursor-pointer"
+                        >
+                          Close Panel
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
+
+                {/* Sub-panel/Modal for viewing channels list */}
+                {isViewingChannels && serverInfo && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+                    <motion.div 
+                      initial={{ scale: 0.95, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className="bg-zinc-900 border border-zinc-800 max-w-lg w-full rounded-2xl overflow-hidden shadow-2xl"
+                    >
+                      <div className="p-5 border-b border-zinc-800 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <BookOpen className="w-5 h-5 text-brand" />
+                          <h3 className="text-sm font-black uppercase tracking-wider text-white">
+                            Channel Structure Intel
+                          </h3>
+                        </div>
+                        <button onClick={() => setIsViewingChannels(false)} className="text-zinc-500 hover:text-white transition-colors">
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                      <div className="p-5 max-h-[350px] overflow-y-auto space-y-2">
+                        {serverInfo.channelsList && serverInfo.channelsList.length > 0 ? (
+                          <div className="grid grid-cols-2 gap-2">
+                            {serverInfo.channelsList.map((ch: any) => (
+                              <div 
+                                key={ch.id}
+                                className="p-2.5 bg-zinc-950 rounded-xl border border-zinc-850/80 flex items-center gap-2"
+                              >
+                                <span className="text-base shrink-0">{ch.type}</span>
+                                <span className="text-xs font-bold text-zinc-400 truncate select-all">{ch.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-zinc-500 font-bold text-center py-4 uppercase tracking-widest">No channels fetched</p>
+                        )}
+                      </div>
+                      <div className="p-4 bg-zinc-950/60 border-t border-zinc-800 text-right">
+                        <button 
+                          onClick={() => setIsViewingChannels(false)} 
+                          className="px-4 py-2 bg-zinc-850 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 font-extrabold text-[10px] uppercase tracking-widest rounded-xl transition-all cursor-pointer"
+                        >
+                          Close Panel
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
               </motion.div>
             )}
 
@@ -1215,6 +1961,14 @@ export default function App() {
                           >
                             <Terminal className="w-3.5 h-3.5" />
                             Access Nerve Center
+                          </button>
+                          
+                          <button 
+                            onClick={() => { setSelectedGuildId(guild.id); setActiveTab("server_info"); }}
+                            className="mt-1 w-full py-2 bg-zinc-700/30 hover:bg-zinc-700 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest text-[#00A8FC] border border-[#00A8FC]/20 transition-all flex items-center justify-center gap-2"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-[#00A8FC]" />
+                            View Server Info Card
                           </button>
                           
                           <div className="flex flex-col gap-1 w-full mb-2">
