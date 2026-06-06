@@ -2091,6 +2091,37 @@ async function startServer() {
         embed.setFooter({ text: settings.footerText });
       }
 
+      // Add dynamic Server Info section if enabled
+      if (settings.includeServerSection) {
+        const sTitle = settings.serverSectionTitle || "🏰 Server Information";
+        let sDesc = settings.serverSectionText || "Welcome to our community!";
+        if (guild.name) {
+          sDesc = sDesc.replace(/{server_name}/gi, guild.name);
+        }
+
+        const metricsList: string[] = [];
+        if (settings.showServerMetrics) {
+          metricsList.push(`👥 **Members:** ${guild.memberCount || "Unknown"}`);
+          const createdTimestamp = guild.createdTimestamp;
+          if (createdTimestamp) {
+            metricsList.push(`📅 **Created:** ${new Date(createdTimestamp).toLocaleDateString("en-US")}`);
+          }
+        }
+        if (settings.serverWebsite) {
+          metricsList.push(`🔗 **Link:** ${settings.serverWebsite}`);
+        }
+
+        const finalSectionVal = metricsList.length > 0 
+          ? `${sDesc}\n\n${metricsList.join("\n")}`
+          : sDesc;
+
+        embed.addFields({
+          name: sTitle,
+          value: finalSectionVal || "Welcome!",
+          inline: false
+        });
+      }
+
       if (settings.rulesList && settings.rulesList.length > 0) {
         settings.rulesList.forEach((section: any) => {
           if (section.title && section.items && section.items.length > 0) {
