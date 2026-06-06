@@ -1030,7 +1030,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("serverinfo")
-    .setDescription("Display modern, premium Sapphire-style server details"),
+    .setDescription("Display compact premium Discord-style server info card with columns"),
 
   new SlashCommandBuilder()
     .setName("serverstatus")
@@ -1575,8 +1575,16 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.deferReply().catch(() => {});
       try {
         const infoData = await fetchServerInfoData(guild);
-        const embed = createServerInfoEmbed(infoData);
-        await safeReply(interaction, { embeds: [embed] });
+        const embed = createServerStatusEmbed(infoData);
+        
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`view_roles_${guild.id}`)
+            .setLabel("View Roles")
+            .setStyle(ButtonStyle.Secondary)
+        );
+
+        await safeReply(interaction, { embeds: [embed], components: [row] });
         
         logSystem("SUCCESS", `Slash command /serverinfo executed successfully in guild ${guild.name}`);
         logAction({
