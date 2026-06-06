@@ -1475,166 +1475,81 @@ export default function App() {
                             {/* Embed itself */}
                             <div className="md:ml-14 flex items-stretch">
                               {/* Left border line */}
-                              <div className="w-1 bg-[#00A8FC] rounded-l-md shrink-0" />
+                              <div className="w-1 bg-[#5865F2] rounded-l-md shrink-0" />
 
                               {/* Embed content wrapper */}
-                              <div className="bg-[#2B2D31] p-4 rounded-r-md flex-1 flex flex-col md:flex-row gap-4 justify-between items-start overflow-hidden">
+                              <div className="bg-[#2B2D31] p-4 rounded-r-md flex-1 flex flex-col md:flex-row gap-4 justify-between items-start overflow-hidden border-y border-r border-[#1e1f22]/30">
                                 {/* Details column */}
                                 <div className="space-y-4 flex-1 min-w-0">
                                   {/* Author / Title */}
                                   <div>
-                                    <h4 className="text-[15.5px] font-bold text-white tracking-wide hover:underline cursor-pointer flex items-center gap-2 truncate">
-                                      💎 {serverInfo.server_name} | Server Information
+                                    <h4 className="text-[15px] font-bold text-white hover:underline cursor-pointer truncate">
+                                      Server Name: <span className="font-extrabold text-[#ffffff]">{serverInfo.server_name}</span>
                                     </h4>
                                   </div>
 
-                                  {/* Embed Layout Fields organized into structured, premium Sections */}
-                                  <div className="space-y-4 text-[13px] font-sans text-[#dbdee1]">
-                                    {/* 🏠 SERVER SECTION */}
-                                    <div className="bg-[#1e1f22]/30 p-3 rounded-lg border border-[#35363c]/30 space-y-1.5">
-                                      <h5 className="text-[11px] font-extrabold uppercase tracking-widest text-[#00A8FC] mb-2 flex items-center gap-1.5">
-                                        <span>🏠</span> SERVER SECTION
-                                      </h5>
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
-                                          <span className="text-zinc-500">•</span>
-                                          <span>
-                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Server Name:</strong>{" "}
-                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.server_name}</span>
-                                          </span>
-                                        </p>
-                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
-                                          <span className="text-zinc-500">•</span>
-                                          <span>
-                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Verification Level:</strong>{" "}
-                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.verification_level || "None"}</span>
-                                          </span>
-                                        </p>
+                                  {/* Embed Layout Fields organized into 3 columns */}
+                                  <div className="space-y-4 font-sans text-[#dbdee1]">
+                                    {/* Row 1 layout: Owner, Members, Roles */}
+                                    <div className="grid grid-cols-3 gap-2">
+                                      <div className="min-w-0">
+                                        <div className="text-[11px] font-bold uppercase text-[#b5bac1] tracking-wide truncate">Owner</div>
+                                        <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5 truncate select-all">{serverInfo.owner_name}</div>
+                                      </div>
+                                      <div className="min-w-0">
+                                        <div className="text-[11px] font-bold uppercase text-[#b5bac1] tracking-wide truncate">Members</div>
+                                        <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.member_count.toLocaleString()}</div>
+                                      </div>
+                                      <div className="min-w-0">
+                                        <div className="text-[11px] font-bold uppercase text-[#b5bac1] tracking-wide truncate">Roles</div>
+                                        <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.role_count}</div>
                                       </div>
                                     </div>
 
-                                    {/* Grid for Member & Channel Sections */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                      {/* 👥 MEMBER SECTION */}
-                                      <div className="bg-[#1e1f22]/30 p-3 rounded-lg border border-[#35363c]/30 space-y-1.5">
-                                        <h5 className="text-[11px] font-extrabold uppercase tracking-widest text-[#00A8FC] mb-2 flex items-center gap-1.5">
-                                          <span>👥</span> MEMBER SECTION
-                                        </h5>
-                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
-                                          <span className="text-zinc-500">•</span>
-                                          <span>
-                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Owner:</strong>{" "}
-                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.owner_name}</span>
-                                          </span>
-                                        </p>
-                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
-                                          <span className="text-zinc-500">•</span>
-                                          <span>
-                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Members:</strong>{" "}
-                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.member_count.toLocaleString()}</span>
-                                          </span>
-                                        </p>
-                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
-                                          <span className="text-zinc-500">•</span>
-                                          <span>
-                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Roles:</strong>{" "}
-                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.role_count}</span>
-                                          </span>
-                                        </p>
+                                    {/* Row 2 layout: Category Channels, Text Channels, Voice Channels */}
+                                    <div className="grid grid-cols-3 gap-2">
+                                      <div className="min-w-0">
+                                        <div className="text-[11px] font-bold uppercase text-[#b5bac1] tracking-wide truncate">Category Channels</div>
+                                        <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.category_count}</div>
                                       </div>
-
-                                      {/* 📂 CHANNEL SECTION */}
-                                      <div className="bg-[#1e1f22]/30 p-3 rounded-lg border border-[#35363c]/30 space-y-1.5">
-                                        <h5 className="text-[11px] font-extrabold uppercase tracking-widest text-[#00A8FC] mb-2 flex items-center gap-1.5">
-                                          <span>📂</span> CHANNEL SECTION
-                                        </h5>
-                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
-                                          <span className="text-zinc-500">•</span>
-                                          <span>
-                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Category Channels:</strong>{" "}
-                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.category_count}</span>
-                                          </span>
-                                        </p>
-                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
-                                          <span className="text-zinc-500">•</span>
-                                          <span>
-                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Text Channels:</strong>{" "}
-                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.text_channel_count}</span>
-                                          </span>
-                                        </p>
-                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
-                                          <span className="text-zinc-500">•</span>
-                                          <span>
-                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Voice Channels:</strong>{" "}
-                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.voice_channel_count}</span>
-                                          </span>
-                                        </p>
+                                      <div className="min-w-0">
+                                        <div className="text-[11px] font-bold uppercase text-[#b5bac1] tracking-wide truncate">Text Channels</div>
+                                        <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.text_channel_count}</div>
                                       </div>
-                                    </div>
-
-                                    {/* 🚀 PRESTIGE BOOST SECTION & 🆔 METADATA SECTION */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                      {/* Boosting info */}
-                                      <div className="bg-[#1e1f22]/30 p-3 rounded-lg border border-[#35363c]/30 space-y-1.5">
-                                        <h5 className="text-[11px] font-extrabold uppercase tracking-widest text-[#00A8FC] mb-2 flex items-center gap-1.5">
-                                          <span>🚀</span> BOOST SECTION
-                                        </h5>
-                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
-                                          <span className="text-zinc-500">•</span>
-                                          <span>
-                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Boost Level:</strong>{" "}
-                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.boost_level || "Level 0"}</span>
-                                          </span>
-                                        </p>
-                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
-                                          <span className="text-zinc-500">•</span>
-                                          <span>
-                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Boost Count:</strong>{" "}
-                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.boost_count || 0} Boosts</span>
-                                          </span>
-                                        </p>
-                                      </div>
-
-                                      {/* Metadata info */}
-                                      <div className="bg-[#1e1f22]/30 p-3 rounded-lg border border-[#35363c]/30 space-y-1.5">
-                                        <h5 className="text-[11px] font-extrabold uppercase tracking-widest text-[#00A8FC] mb-2 flex items-center gap-1.5">
-                                          <span>🆔</span> METADATA SECTION
-                                        </h5>
-                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
-                                          <span className="text-zinc-500">•</span>
-                                          <span>
-                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Server ID:</strong>{" "}
-                                            <code className="bg-[#1e1f22] px-1.5 py-0.5 rounded text-[#f2f3f5] font-mono text-[11px] font-bold select-all">
-                                              {serverInfo.server_id}
-                                            </code>
-                                          </span>
-                                        </p>
-                                        <p className="flex items-center gap-1.5 pl-1 text-[13px] font-medium text-[#dbdee1]">
-                                          <span className="text-zinc-500">•</span>
-                                          <span>
-                                            <strong className="text-[#b5bac1] text-xs uppercase text-zinc-300">Server Created:</strong>{" "}
-                                            <span className="font-bold text-[#f2f3f5]">{serverInfo.created_at}</span>
-                                          </span>
-                                        </p>
+                                      <div className="min-w-0">
+                                        <div className="text-[11px] font-bold uppercase text-[#b5bac1] tracking-wide truncate">Voice Channels</div>
+                                        <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.voice_channel_count}</div>
                                       </div>
                                     </div>
                                   </div>
 
-                                  {/* Embed Footer Text */}
-                                  <div className="flex items-center gap-1.5 mt-2 pt-1">
-                                    {serverInfo.server_icon && (
-                                      <img src={serverInfo.server_icon} className="w-4 h-4 rounded-full select-none" referrerPolicy="no-referrer" />
-                                    )}
-                                    <span className="text-[11px] font-black text-[#949ba4] uppercase tracking-wider">
-                                      Premium Bot Quality • Sapphire Design Edition
-                                    </span>
+                                  {/* Native Divider split line of appropriate discord weight */}
+                                  <div className="border-t border-[#35363c] my-3" />
+
+                                  {/* ID & Created At Section */}
+                                  <div className="text-[12px] text-[#949ba4] font-medium space-y-0.5">
+                                    <div>
+                                      ID: <code className="font-mono text-[#dbdee1] text-[11.5px] font-semibold select-all">{serverInfo.server_id}</code>
+                                    </div>
+                                    <div>
+                                      Server Created: <span className="text-[#dbdee1] font-semibold">{serverInfo.created_at}</span>
+                                    </div>
                                   </div>
                                 </div>
 
-                                {/* Server Icon Thumbnail displayed on the right */}
-                                {serverInfo.server_icon && (
-                                  <div className="w-16 h-16 rounded-md bg-[#1e1f22] border border-[#2b2d31] overflow-hidden shrink-0 hidden md:block group relative self-start">
-                                    <img src={serverInfo.server_icon} alt="Server Icon Thumbnail" className="w-full h-full object-cover scale-110 opacity-90" referrerPolicy="no-referrer" />
+                                {/* Server Icon Square Thumbnail on the right */}
+                                {serverInfo.server_icon ? (
+                                  <div className="w-[64px] h-[64px] md:w-[72px] md:h-[72px] rounded bg-[#1e1f22] border border-[#2b2d31] overflow-hidden shrink-0 group relative self-start">
+                                    <img 
+                                      src={serverInfo.server_icon} 
+                                      alt="Thumbnail" 
+                                      className="w-full h-full object-cover" 
+                                      referrerPolicy="no-referrer" 
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="w-[64px] h-[64px] md:w-[72px] md:h-[72px] rounded bg-[#1e1f22] border border-[#2b2d31] text-[#b5bac1] flex items-center justify-center font-extrabold text-lg shrink-0 select-none self-start">
+                                    {serverInfo.server_name?.[0] || "?"}
                                   </div>
                                 )}
                               </div>

@@ -10,7 +10,10 @@ import {
   SlashCommandBuilder, 
   PermissionFlagsBits,
   EmbedBuilder,
-  ChatInputCommandInteraction
+  ChatInputCommandInteraction,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } from "discord.js";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -351,6 +354,25 @@ function createServerInfoEmbed(data: any) {
     .setThumbnail(data.server_icon)
     .setFooter({ text: "Premium Bot Quality • Sapphire Design Edition", iconURL: data.server_icon || undefined })
     .setTimestamp();
+}
+
+function createServerStatusEmbed(data: any) {
+  return new EmbedBuilder()
+    .setTitle(`Server Name: ${data.server_name}`)
+    .setColor(0x2B2D31) // Sleek Discord dark-grey background color representation
+    .setThumbnail(data.server_icon)
+    .addFields(
+      // Row 1: Owner, Members, Roles
+      { name: "Owner", value: data.owner_name || "Unknown", inline: true },
+      { name: "Members", value: data.member_count ? data.member_count.toLocaleString() : "0", inline: true },
+      { name: "Roles", value: String(data.role_count || 0), inline: true },
+      
+      // Row 2: Category Channels, Text Channels, Voice Channels
+      { name: "Category Channels", value: String(data.category_count || 0), inline: true },
+      { name: "Text Channels", value: String(data.text_channel_count || 0), inline: true },
+      { name: "Voice Channels", value: String(data.voice_channel_count || 0), inline: true }
+    )
+    .setDescription(`────────────────────────────────────\n\n**ID:** ${data.server_id}\n**Server Created:** ${data.created_at}`);
 }
 
 function logAction(data: { action: string, targetId: string, targetTag: string, guildId: string, reason: string, moderatorId: string, moderatorTag: string }) {
@@ -1009,6 +1031,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName("serverinfo")
     .setDescription("Display modern, premium Sapphire-style server details"),
+
+  new SlashCommandBuilder()
+    .setName("serverstatus")
+    .setDescription("Display compact, premium Discord-style server status details with columns"),
 ].map(command => command.toJSON());
 
 async function registerCommands() {
@@ -1079,6 +1105,45 @@ async function safeReply(interaction: any, options: any) {
 }
 
 client.on("interactionCreate", async (interaction) => {
+  if (interaction.isButton()) {
+    if (interaction.customId.startsWith("view_roles_")) {
+      await interaction.deferReply({ ephemeral: true }).catch(() => {});
+      try {
+        const guildId = interaction.customId.replace("view_roles_", "");
+        const guild = client.guilds.cache.get(guildId);
+        if (!guild) {
+          await safeReply(interaction, { content: "Server not found or bot is no longer in this server.", ephemeral: true });
+          return;
+        }
+        
+        const infoData = await fetchServerInfoData(guild);
+        const rolesList = infoData.rolesList;
+        
+        if (!rolesList || rolesList.length === 0) {
+          await safeReply(interaction, { content: "No roles found on this server.", ephemeral: true });
+          return;
+        }
+        
+        const formattedRoles = rolesList
+          .map((r: any) => `<@&${r.id}> (ID: \`${r.id}\`)`)
+          .slice(0, 20)
+          .join("\n");
+          
+        const embed = new EmbedBuilder()
+          .setTitle(`🛡️ Roles for ${guild.name}`)
+          .setColor(0x5865F2)
+          .setDescription(`Showing top roles:\n\n${formattedRoles}${rolesList.length > 20 ? `\n\n*and ${rolesList.length - 20} more roles...*` : ""}`)
+          .setTimestamp();
+          
+        await safeReply(interaction, { embeds: [embed], ephemeral: true });
+      } catch (err: any) {
+        console.error("Error in view_roles button click handler:", err);
+        await safeReply(interaction, { content: `Error: Failed to fetch roles: ${err.message}`, ephemeral: true });
+      }
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName, options, guild } = interaction;
@@ -1526,6 +1591,37 @@ client.on("interactionCreate", async (interaction) => {
       } catch (err: any) {
         logSystem("ERROR", `Failed to run /serverinfo: ${err.message}`);
         await safeReply(interaction, { content: `Error: Failed to fetch server info. ${err.message}`, ephemeral: true });
+      }
+    }
+
+    else if (commandName === "serverstatus") {
+      await interaction.deferReply().catch(() => {});
+      try {
+        const infoData = await fetchServerInfoData(guild);
+        const embed = createServerStatusEmbed(infoData);
+        
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`view_roles_${guild.id}`)
+            .setLabel("View Roles")
+            .setStyle(ButtonStyle.Secondary)
+        );
+
+        await safeReply(interaction, { embeds: [embed], components: [row] });
+        
+        logSystem("SUCCESS", `Slash command /serverstatus executed successfully in guild ${guild.name}`);
+        logAction({
+          action: "SERVERSTATUS",
+          targetId: guild.id,
+          targetTag: guild.name,
+          guildId: guild.id,
+          reason: "Executed /serverstatus Slash Command",
+          moderatorId: interaction.user.id,
+          moderatorTag: interaction.user.tag
+        });
+      } catch (err: any) {
+        logSystem("ERROR", `Failed to run /serverstatus: ${err.message}`);
+        await safeReply(interaction, { content: `Error: Failed to fetch server status. ${err.message}`, ephemeral: true });
       }
     }
 
