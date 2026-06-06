@@ -34,7 +34,9 @@ import {
   Plus,
   Trash2,
   GripVertical,
-  Save
+  Save,
+  Send,
+  BookOpen
 } from "lucide-react";
 import { motion, AnimatePresence, Reorder } from "motion/react";
 
@@ -78,6 +80,12 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState("dashboard");
   const [autoModSettings, setAutoModSettings] = useState<any>(null);
+  const [rulesSettings, setRulesSettings] = useState<any>(null);
+  const [channels, setChannels] = useState<any[]>([]);
+  const [savingRules, setSavingRules] = useState(false);
+  const [sendingRulesMessage, setSendingRulesMessage] = useState(false);
+  const [rulesSendSuccess, setRulesSendSuccess] = useState<string | null>(null);
+  const [rulesSendError, setRulesSendError] = useState<string | null>(null);
   const [userDB, setUserDB] = useState<any[]>([]);
   const [loadingDB, setLoadingDB] = useState(false);
   const [savingAutoMod, setSavingAutoMod] = useState(false);
@@ -585,7 +593,26 @@ export default function App() {
           setLoading(false);
         });
     }
-  }, [activeTab]);
+    if (activeTab === "rules_setup" && selectedGuildId) {
+      setLoading(true);
+      fetch(`/api/rules/${selectedGuildId}`)
+        .then(res => res.json())
+        .then(data => {
+          setRulesSettings(data);
+          setLoading(false);
+        })
+        .catch(err => console.error(err));
+
+      fetch(`/api/guild/${selectedGuildId}/channels`)
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            setChannels(data);
+          }
+        })
+        .catch(err => console.error(err));
+    }
+  }, [activeTab, selectedGuildId]);
 
   const saveAutoMod = async (newSettings: any) => {
     if (!newSettings || !selectedGuildId) return;
@@ -611,6 +638,63 @@ export default function App() {
   const updateAutoMod = (newSettings: any) => {
     setAutoModSettings(newSettings);
     setIsDirty(true);
+  };
+
+  const updateRulesSettings = (newSettings: any) => {
+    setRulesSettings(newSettings);
+    setIsDirty(true);
+  };
+
+  const saveRulesSettings = async (newSettings: any) => {
+    if (!newSettings || !selectedGuildId) return;
+    setSavingRules(true);
+    try {
+      const res = await fetch(`/api/rules/${selectedGuildId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newSettings)
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRulesSettings(data.settings);
+        setIsDirty(false);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingRules(false);
+    }
+  };
+
+  const sendRulesMessage = async () => {
+    if (!selectedGuildId || !rulesSettings) return;
+    setSendingRulesMessage(true);
+    setRulesSendSuccess(null);
+    setRulesSendError(null);
+    try {
+      // Autosave current dashboard draft first
+      await fetch(`/api/rules/${selectedGuildId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(rulesSettings)
+      });
+      setIsDirty(false);
+
+      const res = await fetch(`/api/rules/${selectedGuildId}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const data = await res.ok ? await res.json() : null;
+      if (res.ok && data?.success) {
+        setRulesSendSuccess("Transmitted successfully! The rules embed has been dispatched to the configured rules channel.");
+      } else {
+        setRulesSendError(data?.error || "Execution failed. Please confirm permissions and configuration.");
+      }
+    } catch (err: any) {
+      setRulesSendError(err.message || "An unexpected network error occurred.");
+    } finally {
+      setSendingRulesMessage(false);
+    }
   };
 
   const saveServerSettings = async (newSettings: any) => {
@@ -686,6 +770,14 @@ export default function App() {
           >
             <div className={`w-1.5 h-1.5 rounded-full ${activeTab === "server_config" ? "bg-brand animate-pulse" : "bg-zinc-600"}`}></div>
             Server Configuration
+          </button>
+
+          <button 
+            onClick={() => setActiveTab("rules_setup")}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-all ${activeTab === "rules_setup" ? "bg-zinc-700/50 text-white border border-zinc-600/50 shadow-lg shadow-black/20" : "text-zinc-400 hover:bg-zinc-800"}`}
+          >
+            <div className={`w-1.5 h-1.5 rounded-full ${activeTab === "rules_setup" ? "bg-brand animate-pulse" : "bg-zinc-600"}`}></div>
+            Rules Setup
           </button>
 
           <button 
@@ -2279,6 +2371,399 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              </motion.div>
+            )}
+
+            {activeTab === "rules_setup" && (
+              <motion.div 
+                key="rules_setup"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {!selectedGuildId ? (
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-12 text-center max-w-lg mx-auto shadow-2xl space-y-4">
+                    <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mx-auto text-zinc-500">
+                      <BookOpen className="w-8 h-8" />
+                    </div>
+                    <h3 className="text-lg font-bold text-white">No Server Selected</h3>
+                    <p className="text-sm text-zinc-500">
+                      Please select a server from the sidebar or server list to configure and broadcast community rules.
+                    </p>
+                  </div>
+                ) : !rulesSettings ? (
+                  <div className="p-20 text-center flex flex-col items-center gap-4">
+                    <RefreshCw className="w-8 h-8 text-brand animate-spin" />
+                    <p className="text-brand text-sm font-medium animate-pulse">Initializing Rules Configuration Panel...</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+                    {/* Left Panel: Formulation Controls */}
+                    <div className="xl:col-span-7 space-y-6">
+                      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl space-y-6">
+                        <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+                          <div>
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                              <BookOpen className="w-5 h-5 text-brand" />
+                              Rule Message Formulation
+                            </h2>
+                            <p className="text-xs text-zinc-500">
+                              Formulate, structure, and customize your community guidelines embed.
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {isDirty && (
+                              <span className="text-[10px] bg-amber-500/10 border border-amber-500/20 text-amber-500 px-2 py-1 rounded font-bold uppercase animate-pulse">
+                                Draft Unsaved
+                              </span>
+                            )}
+                            <button
+                              onClick={() => saveRulesSettings(rulesSettings)}
+                              disabled={savingRules}
+                              className="px-4 py-1.5 bg-brand text-white text-xs font-bold rounded-xl hover:bg-brand-hover transition-all flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-brand/20 active:scale-95"
+                            >
+                              <Save className="w-3.5 h-3.5" />
+                              {savingRules ? "Saving..." : "Save Draft"}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Top Config Row */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Rules Broadcast Channel</label>
+                            <select
+                              value={rulesSettings.rulesChannelId || ""}
+                              onChange={(e) => updateRulesSettings({ ...rulesSettings, rulesChannelId: e.target.value })}
+                              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:border-brand outline-none transition-all"
+                            >
+                              <option value="">-- Select Discord Channel --</option>
+                              {channels.map((ch: any) => (
+                                <option key={ch.id} value={ch.id}>#{ch.name}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Embed Accent Color</label>
+                            <div className="flex gap-2">
+                              <input
+                                type="color"
+                                value={rulesSettings.embedColor || "#344ede"}
+                                onChange={(e) => updateRulesSettings({ ...rulesSettings, embedColor: e.target.value })}
+                                className="w-10 h-8 rounded-lg bg-zinc-950 border border-zinc-800 cursor-pointer overflow-hidden"
+                              />
+                              <input
+                                type="text"
+                                value={rulesSettings.embedColor || "#344ede"}
+                                onChange={(e) => updateRulesSettings({ ...rulesSettings, embedColor: e.target.value })}
+                                placeholder="#344ede"
+                                className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-white font-mono uppercase focus:border-brand outline-none transition-all font-sans"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Embed Content Form */}
+                        <div className="space-y-4 pt-2">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Embed Title</label>
+                            <input
+                              type="text"
+                              value={rulesSettings.embedTitle || ""}
+                              onChange={(e) => updateRulesSettings({ ...rulesSettings, embedTitle: e.target.value })}
+                              placeholder="e.g. 📜 Server Rules"
+                              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:border-brand outline-none transition-all placeholder-zinc-700 font-medium"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Embed Main Description</label>
+                            <textarea
+                              value={rulesSettings.embedDescription || ""}
+                              onChange={(e) => updateRulesSettings({ ...rulesSettings, embedDescription: e.target.value })}
+                              placeholder="e.g. Welcome to the server! Please view our guidelines below..."
+                              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-700 focus:border-brand outline-none transition-all h-20 resize-none font-sans"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Embed Footer Message</label>
+                              <input
+                                type="text"
+                                value={rulesSettings.footerText || ""}
+                                onChange={(e) => updateRulesSettings({ ...rulesSettings, footerText: e.target.value })}
+                                placeholder="e.g. Failure to comply may result in punishments."
+                                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:border-brand outline-none transition-all placeholder-zinc-700"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between border border-zinc-800 bg-zinc-950/40 p-3 rounded-2xl">
+                              <div className="space-y-0.5">
+                                <label className="text-xs font-bold text-zinc-300">Server Logo Thumbnail</label>
+                                <p className="text-[9px] text-zinc-500">Show server icon top-right.</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => updateRulesSettings({ ...rulesSettings, showThumbnail: !rulesSettings.showThumbnail })}
+                                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                  rulesSettings.showThumbnail ? "bg-brand" : "bg-zinc-800"
+                                }`}
+                              >
+                                <span
+                                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                                    rulesSettings.showThumbnail ? "translate-x-4" : "translate-x-0"
+                                  }`}
+                                />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Rules Fields Section */}
+                        <div className="space-y-4 pt-4 border-t border-zinc-800">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-white uppercase tracking-wider">Embed Sections (Rule Categories)</label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const list = [...(rulesSettings.rulesList || []), { title: "New Rule Category 📜", items: ["New rule description item"] }];
+                                updateRulesSettings({ ...rulesSettings, rulesList: list });
+                              }}
+                              className="px-2.5 py-1 bg-zinc-850 border border-zinc-700 text-[10px] text-zinc-300 font-bold rounded-lg hover:bg-zinc-700 hover:text-white transition-all flex items-center gap-1 active:scale-95"
+                            >
+                              <Plus className="w-3 h-3 text-brand" />
+                              Add Category
+                            </button>
+                          </div>
+
+                          <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+                            {(!rulesSettings.rulesList || rulesSettings.rulesList.length === 0) ? (
+                              <p className="text-xs text-zinc-600 italic text-center py-4 bg-zinc-950/20 border border-dashed border-zinc-800 rounded-xl">No categories configured. Click 'Add Category' above.</p>
+                            ) : (
+                              rulesSettings.rulesList.map((cat: any, catIdx: number) => (
+                                <div key={catIdx} className="bg-zinc-950 border border-zinc-800/80 rounded-2xl p-4 space-y-3 relative group/cat">
+                                  <div className="flex items-center justify-between gap-2 border-b border-zinc-900 pb-2">
+                                    <input
+                                      type="text"
+                                      value={cat.title || ""}
+                                      onChange={(e) => {
+                                        const list = [...rulesSettings.rulesList];
+                                        list[catIdx] = { ...list[catIdx], title: e.target.value };
+                                        updateRulesSettings({ ...rulesSettings, rulesList: list });
+                                      }}
+                                      placeholder="Category Title (e.g. 📜 Discord Rules)"
+                                      className="bg-transparent text-xs font-bold text-white focus:border-brand border-b border-transparent pb-0.5 outline-none font-sans w-2/3"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const list = rulesSettings.rulesList.filter((_: any, idx: number) => idx !== catIdx);
+                                        updateRulesSettings({ ...rulesSettings, rulesList: list });
+                                      }}
+                                      className="p-1 px-1.5 bg-rose-500/10 hover:bg-rose-500 hover:text-white border border-rose-500/20 text-rose-500 rounded-lg text-[10px] font-bold transition-all flex gap-1 items-center"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      Remove Category
+                                    </button>
+                                  </div>
+
+                                  {/* List items inside category */}
+                                  <div className="space-y-2">
+                                    {cat.items?.map((item: string, itemIdx: number) => (
+                                      <div key={itemIdx} className="flex items-center gap-2 group/item">
+                                        <div className="text-zinc-600 font-mono text-xs">•</div>
+                                        <input
+                                          type="text"
+                                          value={item || ""}
+                                          onChange={(e) => {
+                                            const list = [...rulesSettings.rulesList];
+                                            const items = [...list[catIdx].items];
+                                            items[itemIdx] = e.target.value;
+                                            list[catIdx] = { ...list[catIdx], items };
+                                            updateRulesSettings({ ...rulesSettings, rulesList: list });
+                                          }}
+                                          placeholder="Rule detail message..."
+                                          className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1 text-xs text-zinc-300 focus:border-brand outline-none transition-all placeholder-zinc-800 font-sans"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const list = [...rulesSettings.rulesList];
+                                            const items = list[catIdx].items.filter((_: any, idx: number) => idx !== itemIdx);
+                                            list[catIdx] = { ...list[catIdx], items };
+                                            updateRulesSettings({ ...rulesSettings, rulesList: list });
+                                          }}
+                                          className="opacity-0 group-hover/item:opacity-100 p-1 hover:bg-rose-500/10 hover:text-rose-500 text-zinc-600 rounded transition-all"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    ))}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const list = [...rulesSettings.rulesList];
+                                        const items = [...(list[catIdx].items || []), "New specific community rule"];
+                                        list[catIdx] = { ...list[catIdx], items };
+                                        updateRulesSettings({ ...rulesSettings, rulesList: list });
+                                      }}
+                                      className="mt-1 text-[10px] text-zinc-500 hover:text-brand flex items-center gap-1 font-bold pl-5 transition-all outline-none"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                      Add Rule Element
+                                    </button>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                      </div>
+                    </div>
+
+                    {/* Right Panel: Discord Theme Live Preview */}
+                    <div className="xl:col-span-12 xl:order-last border-t border-zinc-800/50 pt-3 xl:pt-0 xl:col-span-5 space-y-6">
+                      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl space-y-4">
+                        <div className="border-b border-zinc-800 pb-3 flex justify-between items-center flex-wrap gap-2">
+                          <div>
+                            <h3 className="text-sm font-bold text-white flex items-center gap-1.5 uppercase tracking-wide">
+                              <Eye className="w-4 h-4 text-brand" />
+                              Discord Live Simulator
+                            </h3>
+                            <p className="text-[10px] text-zinc-500">Real-time channel broadcast preview.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={sendRulesMessage}
+                            disabled={sendingRulesMessage || !rulesSettings.rulesChannelId}
+                            className={`px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg active:scale-95 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed`}
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            {sendingRulesMessage ? "Transmitting..." : "Send Rules Embed"}
+                          </button>
+                        </div>
+
+                        {/* Status Message Alerts */}
+                        {rulesSendSuccess && (
+                          <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-2xl flex items-start gap-2 text-emerald-400 text-xs shadow-inner">
+                            <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 animate-bounce" />
+                            <span>{rulesSendSuccess}</span>
+                          </div>
+                        )}
+                        {rulesSendError && (
+                          <div className="bg-rose-500/10 border border-rose-500/20 p-3 rounded-2xl flex items-start gap-2 text-rose-400 text-xs shadow-inner">
+                            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0-bounce" />
+                            <span>{rulesSendError}</span>
+                          </div>
+                        )}
+
+                        {/* Discord Chat Container */}
+                        <div className="bg-[#313338] rounded-2xl p-4 text-sm font-sans shadow-inner border border-zinc-950 select-none overflow-hidden">
+                          {/* Channel Header Mock */}
+                          <div className="flex items-center gap-1 text-[#949BA4] text-xs border-b border-[#2B2D31] pb-2 mb-3">
+                            <span className="text-[#80848E] font-bold text-sm">#</span>
+                            <span className="font-semibold text-white/90">
+                              {channels.find(c => c.id === rulesSettings.rulesChannelId)?.name || "rules"}
+                            </span>
+                            <span className="text-[#80848E] mx-1">|</span>
+                            <span className="truncate text-[10px]">Follow server regulations.</span>
+                          </div>
+
+                          {/* Message Mock */}
+                          <div className="flex items-start gap-3">
+                            {/* Bot Avatar Icon */}
+                            <div className="w-10 h-10 rounded-full bg-brand/20 border border-brand/20 overflow-hidden flex items-center justify-center shrink-0">
+                              <img src={logo} alt="Bot Avatar" className="w-full h-full object-cover" />
+                            </div>
+
+                            {/* Message Header and Embed */}
+                            <div className="flex-1 space-y-1.5 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-white text-xs hover:underline cursor-pointer">
+                                  {status?.botName?.split("#")[0] || "Sentinel AI"}
+                                </span>
+                                <span className="bg-[#5865F2] text-white text-[9px] px-1 font-bold rounded uppercase tracking-wider shrink-0 scale-90">
+                                  Bot
+                                </span>
+                                <span className="text-[10px] text-[#949BA4]">Today at 12:45 PM</span>
+                              </div>
+
+                              {/* Discord Rich Embed Simulator */}
+                              <div className="bg-[#2B2D31] rounded-r border-l-4 rounded-l-sm max-w-lg shadow overflow-hidden flex" style={{ borderLeftColor: rulesSettings.embedColor || "#344ede" }}>
+                                <div className="p-3.5 flex-1 space-y-3 min-w-0">
+                                  {/* Embed Body (Author, Title, Desc) */}
+                                  <div className="space-y-1">
+                                    {rulesSettings.embedTitle && (
+                                      <h4 className="font-bold text-white text-sm tracking-tight leading-tight">
+                                        {rulesSettings.embedTitle}
+                                      </h4>
+                                    )}
+                                    {rulesSettings.embedDescription && (
+                                      <p className="text-[#DCE0E3] text-xs whitespace-pre-wrap leading-normal font-sans pt-0.5">
+                                        {rulesSettings.embedDescription}
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  {/* Fields/Sections loop */}
+                                  {rulesSettings.rulesList && rulesSettings.rulesList.length > 0 && (
+                                    <div className="space-y-3 pt-1">
+                                      {rulesSettings.rulesList.map((sc: any, idx: number) => {
+                                        if (!sc.title && (!sc.items || sc.items.length === 0)) return null;
+                                        return (
+                                          <div key={idx} className="space-y-1">
+                                            <div className="font-bold text-xs text-white tracking-tight">{sc.title}</div>
+                                            <div className="text-xs text-[#DCE0E3] space-y-0.5">
+                                              {sc.items?.map((it: string, itIdx: number) => (
+                                                <div key={itIdx} className="pl-1">
+                                                  • {it}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+
+                                  {/* Embed Footer */}
+                                  {rulesSettings.footerText && (
+                                    <div className="text-[10.5px] text-[#949BA4] border-t border-[#313338]/40 pt-1 leading-tight font-sans">
+                                      {rulesSettings.footerText}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Thumbnail Logo column */}
+                                {rulesSettings.showThumbnail && (
+                                  <div className="p-3 pt-3.5 shrink-0 select-none hidden sm:block">
+                                    <div className="w-16 h-16 rounded-md bg-[#1F2023] border border-[#2B2D31] flex items-center justify-center overflow-hidden font-sans">
+                                      <img src={logo} alt="Thumbnail Mock" className="w-full h-full object-cover scale-110 opacity-80" />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Informative Guidance Card */}
+                        <div className="bg-zinc-950/40 border border-zinc-800 p-4 rounded-2xl flex items-start gap-2.5">
+                          <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                          <div className="space-y-1">
+                            <span className="text-xs font-bold text-zinc-300">Live Administration Guidelines</span>
+                            <p className="text-[10px] text-zinc-500 leading-normal">
+                              The rules embeds are handled server-side directly. When you dispatch the broadcast embed, the Discord system automatically routes it without needing user commands or third-party client intervention. Ensure your bot has permission in the target channels to edit or post properly!
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
 

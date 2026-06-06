@@ -1970,6 +1970,147 @@ async function startServer() {
     res.json(db.serverSettings[guildId] || { autoRoleId: null, botRoleId: null, autoRoleEnabled: false, botRoleEnabled: false });
   });
 
+  app.get("/api/guild/:guildId/channels", async (req, res) => {
+    const { guildId } = req.params;
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+    try {
+      const channels = guild.channels.cache
+        .filter(c => c.isTextBased())
+        .map(c => ({ id: c.id, name: c.name }));
+      res.json(channels);
+    } catch (err: any) {
+      console.error("Error fetching channels:", err);
+      res.status(500).json({ error: "Failed to load channels" });
+    }
+  });
+
+  app.get("/api/rules/:guildId", (req, res) => {
+    const { guildId } = req.params;
+    const db = getDB();
+    if (!db.rulesSettings) db.rulesSettings = {};
+    
+    const DEFAULT_RULES_SETTINGS = {
+      rulesChannelId: "",
+      embedTitle: "📜 CarrotMC Rules",
+      embedDescription: "Welcome to CarrotMC! Please read and follow all rules below.",
+      embedColor: "#344ede",
+      showThumbnail: true,
+      footerText: "Breaking rules may result in warnings, mutes, kicks, or bans.",
+      rulesList: [
+        {
+          title: "📜 Discord Server Rules",
+          items: [
+            "Follow Discord ToS",
+            "No spam or excessive pings",
+            "Be respectful",
+            "No harassment or hate speech",
+            "No NSFW content",
+            "No advertising"
+          ]
+        },
+        {
+          title: "⚔️ Lifesteal SMP Rules",
+          items: [
+            "No hacked clients",
+            "No duping or exploits",
+            "No bug abuse",
+            "No unfair advantages",
+            "Respect staff decisions"
+          ]
+        }
+      ]
+    };
+
+    const settings = { ...DEFAULT_RULES_SETTINGS, ...(db.rulesSettings[guildId] || {}) };
+    res.json(settings);
+  });
+
+  app.post("/api/rules/:guildId", (req, res) => {
+    const { guildId } = req.params;
+    const db = getDB();
+    if (!db.rulesSettings) db.rulesSettings = {};
+    db.rulesSettings[guildId] = { ...(db.rulesSettings[guildId] || {}), ...req.body };
+    saveDB(db);
+    res.json({ success: true, settings: db.rulesSettings[guildId] });
+  });
+
+  app.post("/api/rules/:guildId/send", async (req, res) => {
+    const { guildId } = req.params;
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+    const db = getDB();
+    if (!db.rulesSettings) db.rulesSettings = {};
+    const settings = db.rulesSettings[guildId];
+
+    if (!settings || !settings.rulesChannelId) {
+      return res.status(400).json({ error: "Please configure and select a valid Rules Channel before sending." });
+    }
+
+    try {
+      const channel = guild.channels.cache.get(settings.rulesChannelId);
+      if (!channel || !channel.isTextBased() || !('send' in channel)) {
+        return res.status(400).json({ error: "Rules Channel not found or is not a text channel." });
+      }
+
+      // Check permissions
+      if (guild.members.me) {
+        const perms = guild.members.me.permissionsIn(channel as any);
+        if (!perms.has(PermissionFlagsBits.SendMessages) || !perms.has(PermissionFlagsBits.EmbedLinks)) {
+          return res.status(400).json({ error: "Under-privileged Error: Bot is missing 'Send Messages' or 'Embed Links' permissions in the selected channel." });
+        }
+      }
+
+      // Build Embed
+      const embed = new EmbedBuilder()
+        .setTitle(settings.embedTitle || "📜 Server Rules")
+        .setDescription(settings.embedDescription || null)
+        .setColor(settings.embedColor ? parseInt(settings.embedColor.replace("#", ""), 16) : 0x344ede);
+
+      if (settings.showThumbnail && guild.iconURL()) {
+        embed.setThumbnail(guild.iconURL());
+      }
+
+      if (settings.footerText) {
+        embed.setFooter({ text: settings.footerText });
+      }
+
+      if (settings.rulesList && settings.rulesList.length > 0) {
+        settings.rulesList.forEach((section: any) => {
+          if (section.title && section.items && section.items.length > 0) {
+            embed.addFields({
+              name: section.title,
+              value: section.items.map((it: string) => `• ${it}`).join("\n"),
+              inline: false
+            });
+          }
+        });
+      }
+
+      await (channel as any).send({ embeds: [embed] });
+
+      logSystem("SUCCESS", `Rules embed message successfully transmitted dynamically in channel: ${(channel as any).name || channel.id}`);
+      
+      logAction({
+        action: "send-rules",
+        targetId: channel.id,
+        targetTag: `#${(channel as any).name || 'unknown-channel'}`,
+        guildId: guildId,
+        reason: "Manually triggered Discord Embed rules broadcast from control dashboard",
+        moderatorId: "ADMIN-DASHBOARD",
+        moderatorTag: "Web Console Administrator"
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Failed to send rules embed:", err);
+      logSystem("ERROR", `Failed to transmit rules embed: ${err.message}`);
+      res.status(500).json({ error: "Failed to send rules message", message: err.message });
+    }
+  });
+
   app.post("/api/server-settings/:guildId", (req, res) => {
     const { guildId } = req.params;
     const db = getDB();
