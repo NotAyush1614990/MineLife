@@ -109,13 +109,14 @@ export default function App() {
   const [infoServerDropdownOpen, setInfoServerDropdownOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const fetchServerInfo = async (explicitGuildId?: string) => {
+  const fetchServerInfo = async (explicitGuildId?: string, forceRefresh: boolean = false) => {
     const guildId = explicitGuildId || selectedGuildId;
     if (!guildId) return;
     setLoadingServerInfo(true);
     setServerInfoError(null);
     try {
-      const res = await fetch(`/api/guild/${guildId}/server-info`);
+      const url = `/api/guild/${guildId}/server-info${forceRefresh ? "?force=true" : ""}`;
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
       const data = await res.json();
       setServerInfo(data);
@@ -1265,7 +1266,7 @@ export default function App() {
                           </p>
                           {serverInfo && (
                             <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-tight flex items-center gap-1.5 mt-0.5">
-                              <span>👥 {serverInfo.member_count.toLocaleString()} Members</span>
+                              <span>👥 {typeof serverInfo.member_count === "number" ? serverInfo.member_count.toLocaleString() : serverInfo.member_count} Members</span>
                               <span className="text-zinc-600">•</span>
                               <span className="font-mono text-[9px]">{serverInfo.server_id}</span>
                             </p>
@@ -1475,7 +1476,7 @@ export default function App() {
                             {/* Embed itself */}
                             <div className="md:ml-14 flex items-stretch">
                               {/* Left border line */}
-                              <div className="w-1 bg-[#5865F2] rounded-l-md shrink-0" />
+                              <div className="w-1 bg-[#2B2D31] rounded-l-md shrink-0" />
 
                               {/* Embed content wrapper */}
                               <div className="bg-[#2B2D31] p-4 rounded-r-md flex-1 flex flex-col md:flex-row gap-4 justify-between items-start overflow-hidden border-y border-r border-[#1e1f22]/30">
@@ -1483,63 +1484,60 @@ export default function App() {
                                 <div className="space-y-4 flex-1 min-w-0">
                                   {/* Author / Title */}
                                   <div>
-                                    <h4 className="text-[15px] font-bold text-white hover:underline cursor-pointer truncate">
+                                    <h4 className="text-[14px] font-bold text-white hover:underline cursor-pointer truncate font-sans">
                                       Server Name: <span className="font-extrabold text-[#ffffff]">{serverInfo.server_name}</span>
                                     </h4>
                                   </div>
 
-                                  {/* Embed Layout Fields organized into 3 columns */}
-                                  <div className="space-y-4 font-sans text-[#dbdee1]">
-                                    {/* Row 1 layout: Owner, Members, Roles */}
-                                    <div className="grid grid-cols-3 gap-2">
-                                      <div className="min-w-0">
-                                        <div className="text-[11px] font-bold uppercase text-[#b5bac1] tracking-wide truncate">Owner</div>
-                                        <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5 truncate select-all">{serverInfo.owner_name}</div>
-                                      </div>
-                                      <div className="min-w-0">
-                                        <div className="text-[11px] font-bold uppercase text-[#b5bac1] tracking-wide truncate">Members</div>
-                                        <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.member_count.toLocaleString()}</div>
-                                      </div>
-                                      <div className="min-w-0">
-                                        <div className="text-[11px] font-bold uppercase text-[#b5bac1] tracking-wide truncate">Roles</div>
-                                        <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.role_count}</div>
-                                      </div>
-                                    </div>
-
-                                    {/* Row 2 layout: Category Channels, Text Channels, Voice Channels */}
-                                    <div className="grid grid-cols-3 gap-2">
-                                      <div className="min-w-0">
-                                        <div className="text-[11px] font-bold uppercase text-[#b5bac1] tracking-wide truncate">Category Channels</div>
-                                        <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.category_count}</div>
-                                      </div>
-                                      <div className="min-w-0">
-                                        <div className="text-[11px] font-bold uppercase text-[#b5bac1] tracking-wide truncate">Text Channels</div>
-                                        <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.text_channel_count}</div>
-                                      </div>
-                                      <div className="min-w-0">
-                                        <div className="text-[11px] font-bold uppercase text-[#b5bac1] tracking-wide truncate">Voice Channels</div>
-                                        <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.voice_channel_count}</div>
-                                      </div>
-                                    </div>
+                                  {/* Divider separator line */}
+                                  <div className="text-zinc-600/60 leading-none select-none text-[11px] font-mono">
+                                    ────────────────────────────────────
                                   </div>
 
-                                  {/* Native Divider split line of appropriate discord weight */}
-                                  <div className="border-t border-[#35363c] my-3" />
-
                                   {/* ID & Created At Section */}
-                                  <div className="text-[12px] text-[#949ba4] font-medium space-y-0.5">
+                                  <div className="text-[12px] text-[#dbdee1] font-medium space-y-0.5 font-sans leading-relaxed">
                                     <div>
-                                      ID: <code className="font-mono text-[#dbdee1] text-[11.5px] font-semibold select-all">{serverInfo.server_id}</code>
+                                      ID: <span className="font-mono text-[#dbdee1] text-[11.5px] font-semibold select-all">{serverInfo.server_id}</span>
                                     </div>
                                     <div>
                                       Server Created: <span className="text-[#dbdee1] font-semibold">{serverInfo.created_at}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Embed Layout Fields */}
+                                  <div className="grid grid-cols-2 md:grid-cols-3 gap-y-4 gap-x-2 pt-2 text-[#dbdee1] max-w-lg font-sans">
+                                    <div className="min-w-0">
+                                      <div className="text-[11px] font-bold text-[#b5bac1] uppercase tracking-wide">Owner</div>
+                                      <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5 truncate select-all">{serverInfo.owner_name}</div>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="text-[11px] font-bold text-[#b5bac1] uppercase tracking-wide">Members</div>
+                                      <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">
+                                        {typeof serverInfo.member_count === "number" ? serverInfo.member_count.toLocaleString() : serverInfo.member_count}
+                                      </div>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="text-[11px] font-bold text-[#b5bac1] uppercase tracking-wide">Roles</div>
+                                      <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.role_count}</div>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="text-[11px] font-bold text-[#b5bac1] uppercase tracking-wide">Category Channels</div>
+                                      <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.category_count}</div>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="text-[11px] font-bold text-[#b5bac1] uppercase tracking-wide">Text Channels</div>
+                                      <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.text_channel_count}</div>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="text-[11px] font-bold text-[#b5bac1] uppercase tracking-wide">Voice Channels</div>
+                                      <div className="text-[13px] font-semibold text-[#f2f3f5] mt-0.5">{serverInfo.voice_channel_count}</div>
                                     </div>
                                   </div>
                                 </div>
 
                                 {/* Server Icon Square Thumbnail on the right */}
                                 {serverInfo.server_icon ? (
-                                  <div className="w-[64px] h-[64px] md:w-[72px] md:h-[72px] rounded bg-[#1e1f22] border border-[#2b2d31] overflow-hidden shrink-0 group relative self-start">
+                                  <div className="w-[64px] h-[64px] rounded bg-[#1e1f22] border border-[#2b2d31] overflow-hidden shrink-0 group relative self-start">
                                     <img 
                                       src={serverInfo.server_icon} 
                                       alt="Thumbnail" 
@@ -1548,7 +1546,7 @@ export default function App() {
                                     />
                                   </div>
                                 ) : (
-                                  <div className="w-[64px] h-[64px] md:w-[72px] md:h-[72px] rounded bg-[#1e1f22] border border-[#2b2d31] text-[#b5bac1] flex items-center justify-center font-extrabold text-lg shrink-0 select-none self-start">
+                                  <div className="w-[64px] h-[64px] rounded bg-[#1e1f22] border border-[#2b2d31] text-[#b5bac1] flex items-center justify-center font-extrabold text-sm shrink-0 select-none self-start">
                                     {serverInfo.server_name?.[0] || "?"}
                                   </div>
                                 )}
@@ -1575,7 +1573,7 @@ export default function App() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => fetchServerInfo()}
+                                onClick={() => fetchServerInfo(undefined, true)}
                                 className="px-4 py-1.5 bg-[#4e5058] hover:bg-[#6d6f78] text-white font-bold text-xs rounded-md transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shadow"
                               >
                                 <RefreshCw className={`w-3.5 h-3.5 text-zinc-300 ${loadingServerInfo ? "animate-spin text-brand" : ""}`} />
@@ -1677,32 +1675,6 @@ export default function App() {
                                 {broadcastSuccess}
                               </div>
                             )}
-                          </div>
-
-                          {/* Quick statistics checklist */}
-                          <div className="bg-zinc-800/40 p-5 rounded-2xl border border-zinc-700/60 space-y-3.5 select-none">
-                            <span className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block border-b border-zinc-700 pb-1.5">
-                              Server Quick Intel Summary
-                            </span>
-
-                            <div className="grid grid-cols-2 gap-3.5 text-xs">
-                              <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
-                                <span className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-0.5">GUILD NAME</span>
-                                <span className="font-extrabold text-white truncate block">{serverInfo.server_name}</span>
-                              </div>
-                              <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
-                                <span className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-0.5">OWNER TAG</span>
-                                <span className="font-extrabold text-brand truncate block">{serverInfo.owner_name}</span>
-                              </div>
-                              <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
-                                <span className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-0.5">TOTAL USERS</span>
-                                <span className="font-extrabold text-emerald-400 block">{serverInfo.member_count.toLocaleString()} Users</span>
-                              </div>
-                              <div className="bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/80">
-                                <span className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-0.5">HIERARCHY ROLES</span>
-                                <span className="font-extrabold text-cyan-400 block">{serverInfo.role_count} Active</span>
-                              </div>
-                            </div>
                           </div>
                         </div>
                       </div>

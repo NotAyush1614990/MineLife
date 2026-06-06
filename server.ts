@@ -240,16 +240,107 @@ function saveDB(data: any) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
-async function fetchServerInfoData(guild: any) {
-  let ownerName = "Unknown Owner";
-  try {
-    const owner = await guild.fetchOwner();
-    ownerName = owner ? owner.user.tag : `ID: ${guild.ownerId}`;
-  } catch (err) {
-    ownerName = `ID: ${guild.ownerId}`;
+// Active/pending member fetch cache to mitigate rapid requests and gateway rate limits
+const serverInfoCache = new Map<string, {
+  timestamp: number;
+  data: any;
+}>();
+const CACHE_TTL_MS = 10000; // 10 seconds cache is perfect to prevent gateway rate limits on rapid loads
+
+// We fetch and populate guild.members.cache freshly from Discord's REST API whenever the card loads. This avoids WebSocket Opcode 8 entirely.
+async function fetchServerInfoData(guild: any, forceRefresh: boolean = false) {
+  const guildId = guild.id;
+  const now = Date.now();
+
+  // Return cached server info if available and within TTL, unless forced
+  if (!forceRefresh) {
+    const cached = serverInfoCache.get(guildId);
+    if (cached && (now - cached.timestamp < CACHE_TTL_MS)) {
+      return cached.data;
+    }
   }
 
-  const fetchedChannels = await guild.channels.fetch().catch(() => new Map());
+  let freshGuild = guild;
+  let memberCount: number | "Member count unavailable" = "Member count unavailable";
+
+  try {
+    // Always request fresh guild statistics from the Discord API before displaying the card
+    freshGuild = await guild.client.guilds.fetch({ guild: guild.id, force: true });
+    if (freshGuild && typeof freshGuild.memberCount === "number") {
+      memberCount = freshGuild.memberCount;
+    }
+  } catch (err) {
+    console.error("Error fetching fresh guild statistics from Discord API:", err);
+    if (guild && typeof guild.memberCount === "number") {
+      memberCount = guild.memberCount;
+    }
+  }
+
+  let rawMembers: any[] = [];
+  // Real-time REST member fetching to ensure 100% accuracy and populating members cache
+  try {
+    let lastId = "0";
+    while (true) {
+      const query: any = { limit: 1000 };
+      if (lastId !== "0") {
+        query.after = lastId;
+      }
+      const batch = await freshGuild.client.rest.get(Routes.guildMembers(freshGuild.id), { query }) as any[];
+      if (!batch || batch.length === 0) {
+        break;
+      }
+      rawMembers.push(...batch);
+      lastId = batch[batch.length - 1].user.id;
+      if (batch.length < 1000) {
+        break;
+      }
+    }
+
+    // Populate the discord.js manager cache safely if records are present
+    if (rawMembers.length > 0) {
+      try {
+        freshGuild.members.cache.clear();
+        for (const m of rawMembers) {
+          freshGuild.members._add(m, true);
+        }
+      } catch (cacheErr) {
+        console.warn("Non-blocking notice: Could not populate client members cache:", cacheErr);
+      }
+    }
+  } catch (err) {
+    console.error("Error fetching and caching guild members via REST:", err);
+  }
+
+  // Calculate counts correctly based on User Formula.
+  // Bots = Total Bot Accounts
+  // Members = Total Guild Members - Bot Count
+  let botCount = 0;
+  if (rawMembers.length > 0) {
+    botCount = rawMembers.filter((m: any) => m.user && m.user.bot).length;
+  } else if (freshGuild.members.cache.size > 0) {
+    botCount = freshGuild.members.cache.filter((m: any) => m.user && m.user.bot).size;
+  }
+
+  let humanCount = 0;
+  if (typeof memberCount === "number") {
+    humanCount = Math.max(0, memberCount - botCount);
+  } else {
+    if (rawMembers.length > 0) {
+      humanCount = rawMembers.filter((m: any) => m.user && !m.user.bot).length;
+    } else {
+      humanCount = freshGuild.members.cache.filter((m: any) => m.user && !m.user.bot).size;
+    }
+  }
+
+  let ownerName = "Unknown Owner";
+  try {
+    const owner = await freshGuild.fetchOwner();
+    ownerName = owner ? owner.user.tag : `ID: ${freshGuild.ownerId}`;
+  } catch (err) {
+    ownerName = `ID: ${freshGuild.ownerId}`;
+  }
+
+  const fetchedChannels = await freshGuild.channels.fetch().catch(() => new Map());
   let categoryCount = 0;
   let voiceChannelCount = 0;
   let textChannelCount = 0;
@@ -261,10 +352,10 @@ async function fetchServerInfoData(guild: any) {
     else if (c.type === 0 || c.type === 15 || c.type === 5) textChannelCount++;
   });
 
-  const roles = guild.roles.cache.filter((r: any) => r.name !== "@everyone");
+  const roles = freshGuild.roles.cache.filter((r: any) => r.name !== "@everyone");
   const roleCount = roles.size;
 
-  const creationDate = guild.createdAt ? new Date(guild.createdAt).toLocaleDateString("en-US", {
+  const creationDate = freshGuild.createdAt ? new Date(freshGuild.createdAt).toLocaleDateString("en-US", {
     year: 'numeric',
     month: 'long',
     day: 'numeric'
@@ -281,12 +372,12 @@ async function fetchServerInfoData(guild: any) {
     "TIER_2": "Level 2",
     "TIER_3": "Level 3"
   };
-  const rawPremiumTier = guild.premiumTier;
+  const rawPremiumTier = freshGuild.premiumTier;
   const boostLevel = premiumTiers[rawPremiumTier] || (rawPremiumTier ? `Level ${rawPremiumTier}` : "Level 0");
-  const boostCount = guild.premiumSubscriptionCount || 0;
+  const boostCount = freshGuild.premiumSubscriptionCount || 0;
 
   const verificationLevels = ["None", "Low", "Medium", "High", "Highest"];
-  const rawVerif = guild.verificationLevel;
+  const rawVerif = freshGuild.verificationLevel;
   let verifLabel = String(rawVerif);
   if (typeof rawVerif === "number" && rawVerif >= 0 && rawVerif <= 4) {
     verifLabel = verificationLevels[rawVerif];
@@ -299,16 +390,19 @@ async function fetchServerInfoData(guild: any) {
     else if (sVerif === "VERY_HIGH" || sVerif === "HIGHEST" || sVerif === "4") verifLabel = "Highest";
   }
 
-  return {
-    server_name: guild.name,
-    server_icon: guild.iconURL({ size: 1024 }) || null,
+  const serverResult = {
+    server_name: freshGuild.name,
+    server_icon: freshGuild.iconURL({ size: 1024 }) || null,
     owner_name: ownerName,
-    member_count: guild.memberCount,
+    member_count: typeof memberCount === "number" ? memberCount : (humanCount + botCount),
+    human_count: humanCount,
+    online_count: "Member count unavailable",
+    bot_count: botCount,
     role_count: roleCount,
     category_count: categoryCount,
     text_channel_count: textChannelCount,
     voice_channel_count: voiceChannelCount,
-    server_id: guild.id,
+    server_id: freshGuild.id,
     created_at: creationDate,
     boost_level: boostLevel,
     boost_count: boostCount,
@@ -325,54 +419,35 @@ async function fetchServerInfoData(guild: any) {
       return { id: c.id, name: c.name, type: typeLabel, position: c.position || 0 };
     }).filter(Boolean).sort((a: any, b: any) => a.position - b.position).slice(0, 40)
   };
+
+  serverInfoCache.set(guildId, {
+    timestamp: Date.now(),
+    data: serverResult
+  });
+
+  return serverResult;
 }
 
 function createServerInfoEmbed(data: any) {
-  const description = 
-    `🏠 **SERVER SECTION**\n` +
-    `• **Server Name**: **${data.server_name}**\n\n` +
-    `👑 **OWNERSHIP & MEMBERS**\n` +
-    `• **Owner**: ${data.owner_name}\n` +
-    `• **Members**: ${data.member_count.toLocaleString()}\n` +
-    `• **Roles**: ${data.role_count}\n\n` +
-    `📂 **CHANNEL STRUCTURE**\n` +
-    `• **Category Channels**: ${data.category_count}\n` +
-    `• **Text Channels**: ${data.text_channel_count}\n` +
-    `• **Voice Channels**: ${data.voice_channel_count}\n\n` +
-    `🚀 **PREMIUM BOOSTS**\n` +
-    `• **Boost Level**: ${data.boost_level}\n` +
-    `• **Boost Count**: ${data.boost_count} Boosts\n` +
-    `• **Verification Level**: ${data.verification_level}\n\n` +
-    `🆔 **METADATA SECTION**\n` +
-    `• **Server ID**: \`${data.server_id}\`\n` +
-    `• **Server Created**: ${data.created_at}`;
+  const memberDisplay = typeof data.member_count === "number" ? data.member_count.toLocaleString() : "Member count unavailable";
 
-  return new EmbedBuilder()
-    .setTitle(`💎 ${data.server_name} | Server Information`)
-    .setColor(0x00A8FC) // Premium sapphire blue color
-    .setDescription(description)
-    .setThumbnail(data.server_icon)
-    .setFooter({ text: "Premium Bot Quality • Sapphire Design Edition", iconURL: data.server_icon || undefined })
-    .setTimestamp();
-}
-
-function createServerStatusEmbed(data: any) {
   return new EmbedBuilder()
     .setTitle(`Server Name: ${data.server_name}`)
-    .setColor(0x2B2D31) // Sleek Discord dark-grey background color representation
+    .setColor(0x2B2D31) // Sleek Discord dark theme representation
     .setThumbnail(data.server_icon)
     .addFields(
-      // Row 1: Owner, Members, Roles
       { name: "Owner", value: data.owner_name || "Unknown", inline: true },
-      { name: "Members", value: data.member_count ? data.member_count.toLocaleString() : "0", inline: true },
+      { name: "Members", value: memberDisplay, inline: true },
       { name: "Roles", value: String(data.role_count || 0), inline: true },
-      
-      // Row 2: Category Channels, Text Channels, Voice Channels
       { name: "Category Channels", value: String(data.category_count || 0), inline: true },
       { name: "Text Channels", value: String(data.text_channel_count || 0), inline: true },
       { name: "Voice Channels", value: String(data.voice_channel_count || 0), inline: true }
     )
     .setDescription(`────────────────────────────────────\n\n**ID:** ${data.server_id}\n**Server Created:** ${data.created_at}`);
+}
+
+function createServerStatusEmbed(data: any) {
+  return createServerInfoEmbed(data);
 }
 
 function logAction(data: { action: string, targetId: string, targetTag: string, guildId: string, reason: string, moderatorId: string, moderatorTag: string }) {
@@ -489,6 +564,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
   ],
@@ -2246,11 +2322,12 @@ async function startServer() {
 
   app.get("/api/guild/:guildId/server-info", async (req, res) => {
     const { guildId } = req.params;
+    const force = req.query.force === "true";
     const guild = client.guilds.cache.get(guildId);
     if (!guild) return res.status(404).json({ error: "Guild not found" });
 
     try {
-      const data = await fetchServerInfoData(guild);
+      const data = await fetchServerInfoData(guild, force);
       res.json(data);
     } catch (err: any) {
       console.error("Error fetching detailed server-info:", err);
