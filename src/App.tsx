@@ -1010,6 +1010,21 @@ export default function App() {
             <div className={`w-1.5 h-1.5 rounded-full ${activeTab === "staff" ? "bg-brand animate-pulse" : "bg-zinc-600"}`}></div>
             Staff Activity
           </button>
+
+          {/* Persistent Bot Invite Promotion Section */}
+          <div className="p-3 mx-2 mt-4 bg-gradient-to-br from-[#5865F2]/10 to-zinc-900 border border-[#5865F2]/20 rounded-xl relative overflow-hidden group shadow">
+            <h5 className="text-[10px] font-black tracking-widest text-[#5865F2] uppercase mb-1">Add to Discord</h5>
+            <p className="text-[9.5px] text-zinc-400 leading-tight mb-2.5">Deploy Cracked Tier's tools directly to your own server.</p>
+            <a 
+              href={`https://discord.com/api/oauth2/authorize?client_id=${status?.clientId || ''}&permissions=8&scope=bot%20applications.commands`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-[#5865F2] hover:bg-[#4752C4] text-white text-[10px] font-black uppercase tracking-wider rounded-lg transition-all shadow"
+            >
+              <Plus className="w-3 h-3 text-white" />
+              Invite Bot Code
+            </a>
+          </div>
         </nav>
 
         <div className="p-4 border-t border-zinc-700 bg-zinc-850">
@@ -1043,6 +1058,15 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <a 
+              href={`https://discord.com/api/oauth2/authorize?client_id=${status?.clientId || ''}&permissions=8&scope=bot%20applications.commands`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-1.5 bg-[#5865F2] hover:bg-[#4752C4] text-white rounded-lg text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5 shadow"
+            >
+              <Plus className="w-3.5 h-3.5 text-white" />
+              <span>Invite Bot</span>
+            </a>
             <div className="px-3 py-1 bg-zinc-800 rounded-full text-[10px] font-bold text-zinc-400 border border-zinc-700 uppercase tracking-tighter">
               v1.0.0-stable
             </div>
@@ -1387,6 +1411,18 @@ export default function App() {
                               });
                             })()}
                           </div>
+
+                          <div className="p-3 border-t border-[#2b2d31] bg-[#1a1b1e] flex justify-center">
+                            <a
+                              href={`https://discord.com/api/oauth2/authorize?client_id=${status?.clientId || ''}&permissions=8&scope=bot%20applications.commands`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-full text-center py-2 bg-[#5865F2] hover:bg-[#4752C4] text-white text-xs font-bold uppercase tracking-wide rounded-xl transition-all shadow flex items-center justify-center gap-1.5"
+                            >
+                              <Plus className="w-4 h-4" />
+                              Invite Bot to Another Server
+                            </a>
+                          </div>
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -1555,6 +1591,15 @@ export default function App() {
 
                              {/* Simulated Buttons inside Discord block */}
                             <div className="md:ml-14 mt-4 flex flex-wrap gap-2 pt-2 border-t border-[#35363c]/50">
+                              <a
+                                href={`https://discord.com/api/oauth2/authorize?client_id=${status?.clientId || ''}&permissions=8&scope=bot%20applications.commands`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-4 py-1.5 bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold text-xs rounded-md transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shadow"
+                              >
+                                <Plus className="w-3.5 h-3.5 text-white" />
+                                Invite Bot
+                              </a>
                               <button
                                 type="button"
                                 onClick={() => setIsViewingRoles(true)}
