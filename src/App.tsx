@@ -2013,92 +2013,137 @@ export default function App() {
                                 </p>
                               </div>
 
-                              <div className="space-y-3 p-4 bg-zinc-950 border border-zinc-800 rounded-2xl">
-                                <div className="space-y-1.5">
-                                  <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 block px-1">
-                                    Warning DM Message Pattern
-                                  </label>
-                                  <textarea
-                                    value={autoModSettings.warnDMTemplate ?? "⚠️ **You have been warned in {guild}!**\nReason: {reason}"}
-                                    onChange={(e) => updateAutoMod({...autoModSettings, warnDMTemplate: e.target.value})}
-                                    placeholder="e.g. ⚠️ You have been warned in {guild}! Reason: {reason}"
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs focus:border-brand outline-none transition-all text-white placeholder-zinc-600 font-mono h-16 resize-none"
-                                  />
-                                </div>
-
-                                <div className="space-y-4 pt-3 border-t border-zinc-900">
-                                  <div className="space-y-1.5">
-                                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 block px-1">
-                                      In-Channel Warning Warning Message
-                                    </label>
-                                    <textarea
-                                      value={autoModSettings.warnChannelTemplate ?? "⚠️ **{user}, you have been warned for {reason}!** Keep our community clean."}
-                                      onChange={(e) => updateAutoMod({...autoModSettings, warnChannelTemplate: e.target.value})}
-                                      placeholder="Leave empty to disable completely, or type e.g. ⚠️ {user} warned for {reason}."
-                                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs focus:border-brand outline-none transition-all text-white placeholder-zinc-600 font-mono h-16 resize-none"
-                                    />
-                                    <p className="text-[8px] text-zinc-600 px-1 italic">
-                                      Sends a public warning notice in the chat where the infraction happened.
-                                    </p>
+                              <div className="space-y-4 p-4 bg-zinc-950 border border-zinc-800 rounded-2xl">
+                                {/* DM Warning Module */}
+                                <div className="space-y-3">
+                                  <div className="flex items-center justify-between pb-2 border-b border-zinc-900">
+                                    <div className="space-y-0.5">
+                                      <label className="text-xs font-bold text-zinc-300">Send Direct Message (DM) Warning</label>
+                                      <p className="text-[9px] text-zinc-500">Sends infraction details straight to the violator's inbox.</p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateAutoMod({...autoModSettings, warnEnableDM: autoModSettings.warnEnableDM !== false ? false : true})}
+                                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                        autoModSettings.warnEnableDM !== false ? "bg-brand" : "bg-zinc-800"
+                                      }`}
+                                    >
+                                      <span
+                                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                                          autoModSettings.warnEnableDM !== false ? "translate-x-4" : "translate-x-0"
+                                        }`}
+                                      />
+                                    </button>
                                   </div>
 
-                                  {autoModSettings.warnChannelTemplate && (
-                                    <div className="space-y-3 pt-2.5 border-t border-zinc-900/50">
-                                      <div className="flex items-center justify-between">
-                                        <div className="space-y-0.5">
-                                          <label className="text-[10px] font-bold text-zinc-300">Auto-Delete In-Channel Warning</label>
-                                          <p className="text-[9px] text-zinc-500">Enable to automatically delete the warning announcement.</p>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => updateAutoMod({...autoModSettings, warnChannelDelete: !autoModSettings.warnChannelDelete})}
-                                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                                            autoModSettings.warnChannelDelete ? "bg-brand" : "bg-zinc-800"
-                                          }`}
-                                        >
-                                          <span
-                                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                                              autoModSettings.warnChannelDelete ? "translate-x-4" : "translate-x-0"
-                                            }`}
-                                          />
-                                        </button>
+                                  {autoModSettings.warnEnableDM !== false && (
+                                    <div className="space-y-1.5 pl-1">
+                                      <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 block">
+                                        Warning DM Message Pattern
+                                      </label>
+                                      <textarea
+                                        value={autoModSettings.warnDMTemplate ?? "⚠️ **You have been warned in {guild}!**\nReason: {reason}"}
+                                        onChange={(e) => updateAutoMod({...autoModSettings, warnDMTemplate: e.target.value})}
+                                        placeholder="e.g. ⚠️ You have been warned in {guild}! Reason: {reason}"
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs focus:border-brand outline-none transition-all text-white placeholder-zinc-600 font-mono h-16 resize-none"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Channel Warning Module */}
+                                <div className="space-y-3 pt-3 border-t border-zinc-900">
+                                  <div className="flex items-center justify-between pb-2 border-b border-zinc-900">
+                                    <div className="space-y-0.5">
+                                      <label className="text-xs font-bold text-zinc-300">Send In-Channel Warning Message</label>
+                                      <p className="text-[9px] text-zinc-500">Sends a public warning notice in the channel of the infraction.</p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateAutoMod({...autoModSettings, warnEnableChannel: autoModSettings.warnEnableChannel !== false ? false : true})}
+                                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                        autoModSettings.warnEnableChannel !== false ? "bg-brand" : "bg-zinc-800"
+                                      }`}
+                                    >
+                                      <span
+                                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                                          autoModSettings.warnEnableChannel !== false ? "translate-x-4" : "translate-x-0"
+                                        }`}
+                                      />
+                                    </button>
+                                  </div>
+
+                                  {autoModSettings.warnEnableChannel !== false && (
+                                    <div className="space-y-4 pt-1">
+                                      <div className="space-y-1.5 pl-1">
+                                        <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 block">
+                                          In-Channel Warning Message Pattern
+                                        </label>
+                                        <textarea
+                                          value={autoModSettings.warnChannelTemplate ?? "⚠️ **{user}, you have been warned for {reason}!** Keep our community clean."}
+                                          onChange={(e) => updateAutoMod({...autoModSettings, warnChannelTemplate: e.target.value})}
+                                          placeholder="e.g. ⚠️ {user} was warned for {reason}."
+                                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs focus:border-brand outline-none transition-all text-white placeholder-zinc-600 font-mono h-16 resize-none"
+                                        />
                                       </div>
 
-                                      {autoModSettings.warnChannelDelete && (
-                                        <div className="space-y-1.5 pl-1">
-                                          <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex justify-between">
-                                            <span>Notice Delete Delay (Seconds)</span>
-                                            <span className="text-brand font-mono">{autoModSettings.warnChannelDeleteDelay ?? 10}s</span>
-                                          </label>
-                                          <input
-                                            type="number"
-                                            min="2"
-                                            max="300"
-                                            value={autoModSettings.warnChannelDeleteDelay ?? 10}
-                                            onChange={(e) => updateAutoMod({...autoModSettings, warnChannelDeleteDelay: Math.max(2, parseInt(e.target.value) || 2)})}
-                                            className="w-24 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-xs focus:border-brand outline-none text-white font-mono"
-                                          />
-                                        </div>
-                                      )}
-
-                                      <div className="flex items-center justify-between pt-2.5 border-t border-zinc-900/50">
-                                        <div className="space-y-0.5">
-                                          <label className="text-[10px] font-bold text-zinc-300">Mention/Ping Warned User</label>
-                                          <p className="text-[9px] text-zinc-500">Pings the user directly instead of writing their plain text username.</p>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => updateAutoMod({...autoModSettings, warnMentionUser: autoModSettings.warnMentionUser !== false ? false : true})}
-                                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                                            autoModSettings.warnMentionUser !== false ? "bg-brand" : "bg-zinc-800"
-                                          }`}
-                                        >
-                                          <span
-                                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                                              autoModSettings.warnMentionUser !== false ? "translate-x-4" : "translate-x-0"
+                                      <div className="space-y-3 pt-2.5 border-t border-zinc-900/50 pl-1">
+                                        <div className="flex items-center justify-between">
+                                          <div className="space-y-0.5">
+                                            <label className="text-[10px] font-bold text-zinc-300">Auto-Delete In-Channel Warning</label>
+                                            <p className="text-[9px] text-zinc-500">Enable to automatically delete the warning announcement.</p>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => updateAutoMod({...autoModSettings, warnChannelDelete: !autoModSettings.warnChannelDelete})}
+                                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                              autoModSettings.warnChannelDelete ? "bg-brand" : "bg-zinc-800"
                                             }`}
-                                          />
-                                        </button>
+                                          >
+                                            <span
+                                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                                                autoModSettings.warnChannelDelete ? "translate-x-4" : "translate-x-0"
+                                              }`}
+                                            />
+                                          </button>
+                                        </div>
+
+                                        {autoModSettings.warnChannelDelete && (
+                                          <div className="space-y-1.5 pl-1">
+                                            <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex justify-between">
+                                              <span>Notice Delete Delay (Seconds)</span>
+                                              <span className="text-brand font-mono">{autoModSettings.warnChannelDeleteDelay ?? 10}s</span>
+                                            </label>
+                                            <input
+                                              type="number"
+                                              min="2"
+                                              max="300"
+                                              value={autoModSettings.warnChannelDeleteDelay ?? 10}
+                                              onChange={(e) => updateAutoMod({...autoModSettings, warnChannelDeleteDelay: Math.max(2, parseInt(e.target.value) || 2)})}
+                                              className="w-24 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-xs focus:border-brand outline-none text-white font-mono"
+                                            />
+                                          </div>
+                                        )}
+
+                                        <div className="flex items-center justify-between pt-2.5 border-t border-zinc-900/50">
+                                          <div className="space-y-0.5">
+                                            <label className="text-[10px] font-bold text-zinc-300">Mention/Ping Warned User</label>
+                                            <p className="text-[9px] text-zinc-500">Pings the user directly instead of writing their plain text username.</p>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => updateAutoMod({...autoModSettings, warnMentionUser: autoModSettings.warnMentionUser !== false ? false : true})}
+                                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                              autoModSettings.warnMentionUser !== false ? "bg-brand" : "bg-zinc-800"
+                                            }`}
+                                          >
+                                            <span
+                                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                                                autoModSettings.warnMentionUser !== false ? "translate-x-4" : "translate-x-0"
+                                              }`}
+                                            />
+                                          </button>
+                                        </div>
                                       </div>
                                     </div>
                                   )}

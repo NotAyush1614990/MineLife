@@ -138,6 +138,8 @@ const DEFAULT_AUTOMOD_SETTINGS = {
   warnChannelDelete: true,
   warnChannelDeleteDelay: 10,
   warnMentionUser: true,
+  warnEnableDM: true,
+  warnEnableChannel: true,
   wordFilter: [], 
   badWordFilter: true,
   badWordList: [
@@ -315,30 +317,32 @@ async function issueWarning(guild: any, target: any, moderator: { id: string, ta
     moderatorTag: moderator.tag
   });
 
-  // Try to DM the user
-  try {
-    const dmTemplate = guildSettings?.warnDMTemplate || "⚠️ **You have been warned in {guild}!**\nReason: {reason}";
-    const dmText = dmTemplate
-      .replace(/\{guild\}/g, guild.name)
-      .replace(/\{reason\}/g, reason)
-      .replace(/\{user\}/g, targetTag);
+  // Try to DM the user if enabled
+  if (guildSettings?.warnEnableDM !== false) {
+    try {
+      const dmTemplate = guildSettings?.warnDMTemplate || "⚠️ **You have been warned in {guild}!**\nReason: {reason}";
+      const dmText = dmTemplate
+        .replace(/\{guild\}/g, guild.name)
+        .replace(/\{reason\}/g, reason)
+        .replace(/\{user\}/g, targetTag);
 
-    const dmEmbed = new EmbedBuilder()
-      .setTitle(`Warning Issued`)
-      .setDescription(dmText)
-      .setColor(0xFFA500)
-      .addFields(
-        { name: "Reason", value: reason },
-        { name: "Moderator", value: moderator.tag }
-      )
-      .setTimestamp();
-    
-    const sendTarget = target.user || target;
-    await sendTarget.send({ embeds: [dmEmbed] }).catch(() => {
-      console.log(`Could not send DM to ${targetTag}`);
-    });
-  } catch (err) {
-    console.error("Error sending DM:", err);
+      const dmEmbed = new EmbedBuilder()
+        .setTitle(`Warning Issued`)
+        .setDescription(dmText)
+        .setColor(0xFFA500)
+        .addFields(
+          { name: "Reason", value: reason },
+          { name: "Moderator", value: moderator.tag }
+        )
+        .setTimestamp();
+      
+      const sendTarget = target.user || target;
+      await sendTarget.send({ embeds: [dmEmbed] }).catch(() => {
+        console.log(`Could not send DM to ${targetTag}`);
+      });
+    } catch (err) {
+      console.error("Error sending DM:", err);
+    }
   }
 }
 
@@ -764,8 +768,8 @@ client.on("messageCreate", async (message) => {
         const warnReason = `[Auto-Mod] ${reason} ${isRepeatOffender ? '(Escalated Due to History)' : ''}`;
         await issueWarning(message.guild, member, { id: "SENTINEL-AI", tag: "SENTINEL-AI" }, warnReason, guildSettings);
 
-        // Also post in-channel warning alert if defined
-        if (guildSettings.warnChannelTemplate) {
+        // Also post in-channel warning alert if defined and enabled
+        if (guildSettings.warnEnableChannel !== false && guildSettings.warnChannelTemplate) {
           const userStr = guildSettings.warnMentionUser !== false ? `<@${member.id}>` : `**${member.user.username}**`;
           const warnText = guildSettings.warnChannelTemplate
             .replace(/\{user\}/g, userStr)
