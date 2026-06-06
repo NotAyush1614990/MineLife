@@ -85,6 +85,10 @@ export default function App() {
   const [channels, setChannels] = useState<any[]>([]);
   const [savingRules, setSavingRules] = useState(false);
   const [sendingRulesMessage, setSendingRulesMessage] = useState(false);
+  const [updatingRulesMessage, setUpdatingRulesMessage] = useState(false);
+  const [deletingRulesMessage, setDeletingRulesMessage] = useState(false);
+  const [simulatedUserRole, setSimulatedUserRole] = useState<'admin' | 'moderator'>('admin');
+  const [isServerDropdownOpen, setIsServerDropdownOpen] = useState(false);
   const [rulesSendSuccess, setRulesSendSuccess] = useState<string | null>(null);
   const [rulesSendError, setRulesSendError] = useState<string | null>(null);
   const [userDB, setUserDB] = useState<any[]>([]);
@@ -526,6 +530,29 @@ export default function App() {
     }
   };
 
+  const getManageableGuilds = () => {
+    if (!status?.guildList) return [];
+    return status.guildList.filter((g: any, index: number) => {
+      // Admin has access to all bot-joined servers
+      if (simulatedUserRole === 'admin') return true;
+      // Regulator/Standard Moderator has access only to the first server, hiding any others
+      return index === 0;
+    });
+  };
+
+  useEffect(() => {
+    if (activeTab === "rules_setup" && status?.guildList) {
+      const manageable = getManageableGuilds();
+      if (selectedGuildId && !manageable.some(g => g.id === selectedGuildId)) {
+        if (manageable.length > 0) {
+          setSelectedGuildId(manageable[0].id);
+        } else {
+          setSelectedGuildId(null);
+        }
+      }
+    }
+  }, [simulatedUserRole, status, activeTab]);
+
   useEffect(() => {
     if (activeTab === "database") {
       setLoadingDB(true);
@@ -680,20 +707,32 @@ export default function App() {
     setRulesSendError(null);
     try {
       // Autosave current dashboard draft first
-      await fetch(`/api/rules/${selectedGuildId}`, {
+      const saveRes = await fetch(`/api/rules/${selectedGuildId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(rulesSettings)
       });
+      if (saveRes.ok) {
+        const saveResult = await saveRes.json();
+        if (saveResult?.settings) {
+          setRulesSettings(saveResult.settings);
+        }
+      }
       setIsDirty(false);
 
       const res = await fetch(`/api/rules/${selectedGuildId}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" }
       });
-      const data = await res.ok ? await res.json() : null;
+      const data = res.ok ? await res.json() : null;
       if (res.ok && data?.success) {
         setRulesSendSuccess("Transmitted successfully! The rules embed has been dispatched to the configured rules channel.");
+        // Fetch rules once more to update local rulesSettings with newly-recorded message ID
+        const loadRes = await fetch(`/api/rules/${selectedGuildId}`);
+        if (loadRes.ok) {
+          const loadedData = await loadRes.json();
+          setRulesSettings(loadedData);
+        }
       } else {
         setRulesSendError(data?.error || "Execution failed. Please confirm permissions and configuration.");
       }
@@ -701,6 +740,73 @@ export default function App() {
       setRulesSendError(err.message || "An unexpected network error occurred.");
     } finally {
       setSendingRulesMessage(false);
+    }
+  };
+
+  const updateRulesMessage = async () => {
+    if (!selectedGuildId || !rulesSettings) return;
+    setUpdatingRulesMessage(true);
+    setRulesSendSuccess(null);
+    setRulesSendError(null);
+    try {
+      // Autosave current dashboard draft first
+      const saveRes = await fetch(`/api/rules/${selectedGuildId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(rulesSettings)
+      });
+      if (saveRes.ok) {
+        const saveResult = await saveRes.json();
+        if (saveResult?.settings) {
+          setRulesSettings(saveResult.settings);
+        }
+      }
+      setIsDirty(false);
+
+      const res = await fetch(`/api/rules/${selectedGuildId}/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const data = res.ok ? await res.json() : null;
+      if (res.ok && data?.success) {
+        setRulesSendSuccess("Updated successfully! The existing rules embed has been programmatically updated inside Discord.");
+      } else {
+        setRulesSendError(data?.error || "Update failed. Make sure a rules message was already sent and is not deleted.");
+      }
+    } catch (err: any) {
+      setRulesSendError(err.message || "An unexpected error occurred during update.");
+    } finally {
+      setUpdatingRulesMessage(false);
+    }
+  };
+
+  const deleteRulesMessage = async () => {
+    if (!selectedGuildId || !rulesSettings) return;
+    if (!window.confirm("Are you sure you want to delete the posted rules message from Discord? This will physically remove the message directly from the target Discord channel.")) return;
+    setDeletingRulesMessage(true);
+    setRulesSendSuccess(null);
+    setRulesSendError(null);
+    try {
+      const res = await fetch(`/api/rules/${selectedGuildId}/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const data = res.ok ? await res.json() : null;
+      if (res.ok && data?.success) {
+        setRulesSendSuccess("Deleted successfully! The rules message has been removed from Discord.");
+        // Fetch rules once more to reset local rulesSettings message ID
+        const loadRes = await fetch(`/api/rules/${selectedGuildId}`);
+        if (loadRes.ok) {
+          const loadedData = await loadRes.json();
+          setRulesSettings(loadedData);
+        }
+      } else {
+        setRulesSendError(data?.error || "Deletion failed. Make sure a rules message is current on Discord.");
+      }
+    } catch (err: any) {
+      setRulesSendError(err.message || "An unexpected error occurred during deletion.");
+    } finally {
+      setDeletingRulesMessage(false);
     }
   };
 
@@ -2391,6 +2497,132 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
               >
+                {/* SELECT SERVER DROP-DOWN AND CARD (ALWAYS SHOWN CHOSEN SERVER DETAILED INFORMATION) */}
+                {(() => {
+                  const activeGuild = status?.guildList?.find((g: any) => g.id === selectedGuildId);
+                  const manageableGuilds = getManageableGuilds();
+                  return (
+                    <div className="bg-gradient-to-r from-zinc-900 via-[#1c1d21] to-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl space-y-6 relative overflow-hidden backdrop-blur-md">
+                      <div className="absolute -top-12 -left-12 w-32 h-32 bg-brand/10 rounded-full blur-3xl pointer-events-none" />
+                      
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
+                        <div className="flex items-center gap-2">
+                          <Shield className="w-5 h-5 text-brand" />
+                          <div>
+                            <h2 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-1.5 font-sans">
+                              Select Server for Guidelines
+                            </h2>
+                            <p className="text-[10px] text-zinc-500 font-medium">Configure and deploy direct channel community rules messages.</p>
+                          </div>
+                        </div>
+
+                        {/* DASHBOARD ACCESS CONTROL (MOCK SESSION CONTROLLER) */}
+                        <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-850 self-start sm:self-auto">
+                          <span className="text-[9px] font-bold text-zinc-500 px-2 uppercase tracking-widest hidden sm:inline">Permission Simulation:</span>
+                          <button
+                            type="button"
+                            onClick={() => setSimulatedUserRole('admin')}
+                            className={`px-2.5 py-1 text-[9px] font-extrabold rounded-lg transition-all flex items-center gap-1 ${
+                              simulatedUserRole === 'admin' 
+                                ? 'bg-brand/15 text-brand border border-brand/20 shadow-sm' 
+                                : 'text-zinc-500 hover:text-zinc-300'
+                            }`}
+                          >
+                            👑 Admin Role
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSimulatedUserRole('moderator')}
+                            className={`px-2.5 py-1 text-[9px] font-extrabold rounded-lg transition-all flex items-center gap-1 ${
+                              simulatedUserRole === 'moderator' 
+                                ? 'bg-rose-500/15 text-rose-500 border border-rose-500/20 shadow-sm' 
+                                : 'text-zinc-500 hover:text-zinc-300'
+                            }`}
+                          >
+                            🛡️ Mod Role (No Admin)
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Dropdown element */}
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-[#00A8FC] block font-sans">Choose Target Server</label>
+                          <div className="relative">
+                            <select
+                              value={selectedGuildId || ""}
+                              onChange={(e) => setSelectedGuildId(e.target.value || null)}
+                              className="w-full bg-zinc-950 border border-zinc-800 hover:border-zinc-700/80 rounded-2xl px-4 py-3.5 text-xs text-white focus:border-brand-hover focus:border border outline-none transition-all cursor-pointer font-sans appearance-none pl-11 shadow-inner relative"
+                            >
+                              <option value="">-- Click to select a server --</option>
+                              {manageableGuilds.map((g: any) => (
+                                <option key={g.id} value={g.id} className="bg-zinc-950">
+                                  {g.name}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                              {activeGuild?.icon ? (
+                                <img src={activeGuild.icon} alt="" className="w-5 h-5 rounded-full object-cover" referrerPolicy="no-referrer" />
+                              ) : (
+                                <Shield className="w-5 h-5 text-brand/80" />
+                              )}
+                            </div>
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
+                              <ChevronDown className="w-4 h-4" />
+                            </div>
+                          </div>
+                          {simulatedUserRole === 'moderator' && (
+                            <p className="text-[9px] text-rose-500 font-bold flex items-center gap-1 bg-rose-500/5 p-2 rounded-xl border border-rose-500/10 font-sans">
+                              <Info className="w-3 h-3 text-rose-400" />
+                              Showing 1 of {status?.guildList?.length || 0} servers. Servers where you don't have Administrator permissions are hidden.
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Visual details block */}
+                        <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-2xl flex items-center gap-4 min-h-[82px] relative overflow-hidden">
+                          {activeGuild ? (
+                            <>
+                              <div className="relative shrink-0 select-none">
+                                {activeGuild.icon ? (
+                                  <img src={activeGuild.icon} alt={activeGuild.name} className="w-12 h-12 rounded-2xl object-cover border border-zinc-850 shadow-lg" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <div className="w-12 h-12 bg-zinc-800 border border-zinc-700 rounded-2xl flex items-center justify-center text-sm font-bold text-white shadow-lg font-mono">
+                                    {activeGuild.name.split(" ").map((w: string) => w[0]).join("").slice(0, 3).toUpperCase()}
+                                  </div>
+                                )}
+                                <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-emerald-500 border-2 border-zinc-900 rounded-full animate-pulse" title="Connected" />
+                              </div>
+                              <div className="flex-1 space-y-0.5 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h4 className="text-xs font-bold text-white tracking-wide truncate">{activeGuild.name}</h4>
+                                  <span className="text-[8px] bg-brand/10 border border-brand/20 text-brand px-1.5 py-0.5 rounded-md font-mono uppercase tracking-tighter shrink-0 font-bold">
+                                    AVAILABLE
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-3 text-[10px] text-zinc-500 font-mono flex-wrap">
+                                  <span className="flex items-center gap-1 text-[9.5px]">
+                                    <Users className="w-3 h-3 text-zinc-600" />
+                                    {activeGuild.memberCount} Members
+                                  </span>
+                                  <span>•</span>
+                                  <span className="truncate text-[9.5px]">ID: {activeGuild.id}</span>
+                                </div>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex items-center gap-3 text-zinc-500 py-2">
+                              <Info className="w-4 h-4 text-zinc-600 self-start mt-0.5" />
+                              <p className="text-[11px] leading-normal font-sans text-zinc-400">No server selected. Select a Discord Guild with administrator authority above to authorize content broadcasts.</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {!selectedGuildId ? (
                   <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-12 text-center max-w-lg mx-auto shadow-2xl space-y-4">
                     <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mx-auto text-zinc-500">
@@ -2497,7 +2729,17 @@ export default function App() {
                             />
                           </div>
 
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-sans">
+                            <div className="space-y-1.5 col-span-1 md:col-span-2">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-[#00A8FC]">Server Thumbnail URL (Custom Illustration)</label>
+                              <input
+                                type="text"
+                                value={rulesSettings.thumbnailUrl || ""}
+                                onChange={(e) => updateRulesSettings({ ...rulesSettings, thumbnailUrl: e.target.value })}
+                                placeholder="e.g. https://domain.com/illustration.png (Fallback to Discord Server Icon below)"
+                                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:border-brand outline-none transition-all placeholder-zinc-700 font-mono"
+                              />
+                            </div>
                             <div className="space-y-1.5">
                               <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Embed Footer Message</label>
                               <input
@@ -2722,19 +2964,76 @@ export default function App() {
                           <div>
                             <h3 className="text-sm font-bold text-white flex items-center gap-1.5 uppercase tracking-wide">
                               <Eye className="w-4 h-4 text-brand" />
-                              Discord Live Simulator
+                              Discord Rules Simulation
                             </h3>
-                            <p className="text-[10px] text-zinc-500">Real-time channel broadcast preview.</p>
+                            <p className="text-[10px] text-zinc-500">Real-time local content and channel sync control.</p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={sendRulesMessage}
-                            disabled={sendingRulesMessage || !rulesSettings.rulesChannelId}
-                            className={`px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg active:scale-95 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed`}
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                            {sendingRulesMessage ? "Transmitting..." : "Send Rules Embed"}
-                          </button>
+                        </div>
+
+                        {/* Guidelines Dispatch Console */}
+                        <div className="bg-zinc-950/60 p-4 rounded-2xl border border-zinc-850 space-y-3 font-sans">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-[#00A8FC] block">Discord Guidelines Remote Controller</span>
+                          
+                          <div className="grid grid-cols-2 gap-3">
+                            <button
+                              type="button"
+                              onClick={sendRulesMessage}
+                              disabled={sendingRulesMessage || !rulesSettings.rulesChannelId}
+                              className="px-3 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed col-span-2 sm:col-span-1"
+                              title="Post a fresh Discord embedded rules broadcast in the selected channel."
+                            >
+                              <Send className="w-3.5 h-3.5 animate-pulse" />
+                              {sendingRulesMessage ? "Sending..." : "Send Rules"}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={updateRulesMessage}
+                              disabled={updatingRulesMessage || !rulesSettings.rulesChannelId || !rulesSettings.lastMessageId}
+                              className="px-3 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed col-span-2 sm:col-span-1"
+                              title="Edit and overwrite the previously sent live rules message in place."
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${updatingRulesMessage ? 'animate-spin' : ''}`} />
+                              {updatingRulesMessage ? "Updating..." : "Update Post"}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={deleteRulesMessage}
+                              disabled={deletingRulesMessage || !rulesSettings.rulesChannelId || !rulesSettings.lastMessageId}
+                              className="px-3 py-2.5 bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed col-span-2 sm:col-span-1"
+                              title="Delete the previously sent rules message directly from the server target channel."
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              {deletingRulesMessage ? "Deleting..." : "Delete Post"}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => saveRulesSettings(rulesSettings)}
+                              disabled={savingRules}
+                              className="px-3 py-2.5 bg-zinc-800 hover:bg-zinc-750 text-zinc-200 font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed col-span-2 sm:col-span-1"
+                              title="Persist configuration changes without broadcasting update."
+                            >
+                              <Save className="w-3.5 h-3.5 text-zinc-400" />
+                              {savingRules ? "Saving..." : "Save Draft"}
+                            </button>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-zinc-900/60 flex-wrap gap-1">
+                            <span className="text-[8.5px] font-mono text-zinc-500 uppercase font-black">Target Channel Id:</span>
+                            <span className="text-[9.5px] font-mono text-[#00A8FC] font-black">{rulesSettings.rulesChannelId || '[NONE CONFIGURED]'}</span>
+                          </div>
+
+                          {rulesSettings.lastMessageId && (
+                            <div className="flex items-center justify-between border-t border-zinc-900/40 pt-1.5">
+                              <span className="text-[8.5px] font-mono text-zinc-500 uppercase font-black">Remote Message Id:</span>
+                              <div className="flex items-center gap-1">
+                                <span className="text-[9.5px] font-mono bg-zinc-900 px-1.5 py-0.5 rounded text-zinc-400 font-bold border border-zinc-800 select-all">{rulesSettings.lastMessageId}</span>
+                                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" title="Message is synchronized" />
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* Status Message Alerts */}
@@ -2857,10 +3156,10 @@ export default function App() {
                                 </div>
 
                                 {/* Thumbnail Logo column */}
-                                {rulesSettings.showThumbnail && (
+                                {(rulesSettings.thumbnailUrl || rulesSettings.showThumbnail) && (
                                   <div className="p-3 pt-3.5 shrink-0 select-none hidden sm:block">
                                     <div className="w-16 h-16 rounded-md bg-[#1F2023] border border-[#2B2D31] flex items-center justify-center overflow-hidden font-sans">
-                                      <img src={logo} alt="Thumbnail Mock" className="w-full h-full object-cover scale-110 opacity-80" />
+                                      <img src={rulesSettings.thumbnailUrl || logo} alt="Thumbnail Mock" className="w-full h-full object-cover scale-110 opacity-80" referrerPolicy="no-referrer" />
                                     </div>
                                   </div>
                                 )}

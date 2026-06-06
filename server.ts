@@ -2083,7 +2083,9 @@ async function startServer() {
         .setDescription(settings.embedDescription || null)
         .setColor(settings.embedColor ? parseInt(settings.embedColor.replace("#", ""), 16) : 0x344ede);
 
-      if (settings.showThumbnail && guild.iconURL()) {
+      if (settings.thumbnailUrl) {
+        embed.setThumbnail(settings.thumbnailUrl);
+      } else if (settings.showThumbnail && guild.iconURL()) {
         embed.setThumbnail(guild.iconURL());
       }
 
@@ -2134,7 +2136,12 @@ async function startServer() {
         });
       }
 
-      await (channel as any).send({ embeds: [embed] });
+      const sentMsg = await (channel as any).send({ embeds: [embed] });
+      
+      // Save sent message ID to settings
+      settings.lastMessageId = sentMsg.id;
+      db.rulesSettings[guildId] = settings;
+      saveDB(db);
 
       logSystem("SUCCESS", `Rules embed message successfully transmitted dynamically in channel: ${(channel as any).name || channel.id}`);
       
@@ -2148,11 +2155,181 @@ async function startServer() {
         moderatorTag: "Web Console Administrator"
       });
 
-      res.json({ success: true });
+      res.json({ success: true, messageId: sentMsg.id });
     } catch (err: any) {
       console.error("Failed to send rules embed:", err);
       logSystem("ERROR", `Failed to transmit rules embed: ${err.message}`);
       res.status(500).json({ error: "Failed to send rules message", message: err.message });
+    }
+  });
+
+  app.post("/api/rules/:guildId/update", async (req, res) => {
+    const { guildId } = req.params;
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+    const db = getDB();
+    if (!db.rulesSettings) db.rulesSettings = {};
+    const settings = db.rulesSettings[guildId];
+
+    if (!settings || !settings.rulesChannelId) {
+      return res.status(400).json({ error: "Please configure and select a valid Rules Channel before updating." });
+    }
+
+    if (!settings.lastMessageId) {
+      return res.status(400).json({ error: "Operational Failure: No active Rules Message ID registered for this server to update. Broadcast a message first." });
+    }
+
+    try {
+      let channel = guild.channels.cache.get(settings.rulesChannelId);
+      if (!channel) {
+        channel = await guild.channels.fetch(settings.rulesChannelId).catch(() => undefined) as any;
+      }
+      if (!channel || !('messages' in channel)) {
+        return res.status(400).json({ error: "The selected channel is not text-capable or cannot receive messages." });
+      }
+
+      // Check permissions
+      if (guild.members.me) {
+        const perms = guild.members.me.permissionsIn(channel as any);
+        if (!perms.has(PermissionFlagsBits.SendMessages) || !perms.has(PermissionFlagsBits.EmbedLinks)) {
+          return res.status(400).json({ error: "Under-privileged Error: Bot is missing Send Messages or Embed Links permissions in the selected channel." });
+        }
+      }
+
+      // Build Embed
+      const embed = new EmbedBuilder()
+        .setTitle(settings.embedTitle || "📜 Server Rules")
+        .setDescription(settings.embedDescription || null)
+        .setColor(settings.embedColor ? parseInt(settings.embedColor.replace("#", ""), 16) : 0x344ede);
+
+      if (settings.thumbnailUrl) {
+        embed.setThumbnail(settings.thumbnailUrl);
+      } else if (settings.showThumbnail && guild.iconURL()) {
+        embed.setThumbnail(guild.iconURL());
+      }
+
+      if (settings.footerText) {
+        embed.setFooter({ text: settings.footerText });
+      }
+
+      // Add dynamic Server Info section if enabled
+      if (settings.includeServerSection) {
+        const sTitle = settings.serverSectionTitle || "🏰 Server Information";
+        let sDesc = settings.serverSectionText || "Welcome to our community!";
+        if (guild.name) {
+          sDesc = sDesc.replace(/{server_name}/gi, guild.name);
+        }
+
+        const metricsList: string[] = [];
+        if (settings.showServerMetrics) {
+          metricsList.push(`👥 **Members:** ${guild.memberCount || "Unknown"}`);
+          const createdTimestamp = guild.createdTimestamp;
+          if (createdTimestamp) {
+            metricsList.push(`📅 **Created:** ${new Date(createdTimestamp).toLocaleDateString("en-US")}`);
+          }
+        }
+        if (settings.serverWebsite) {
+          metricsList.push(`🔗 **Link:** ${settings.serverWebsite}`);
+        }
+
+        const finalSectionVal = metricsList.length > 0 
+          ? `${sDesc}\n\n${metricsList.join("\n")}`
+          : sDesc;
+
+        embed.addFields({
+          name: sTitle,
+          value: finalSectionVal || "Welcome!",
+          inline: false
+        });
+      }
+
+      if (settings.rulesList && settings.rulesList.length > 0) {
+        settings.rulesList.forEach((section: any) => {
+          if (section.title && section.items && section.items.length > 0) {
+            embed.addFields({
+              name: section.title,
+              value: section.items.map((it: string) => `• ${it}`).join("\n"),
+              inline: false
+            });
+          }
+        });
+      }
+
+      const ruleMessage = await (channel as any).messages.fetch(settings.lastMessageId).catch(() => undefined);
+      if (!ruleMessage) {
+        return res.status(404).json({ error: "The previously sent Rules message could not be found in the channel. It may have been deleted manually." });
+      }
+
+      await ruleMessage.edit({ embeds: [embed] });
+
+      logSystem("SUCCESS", `Rules embed message successfully updated in channel: ${(channel as any).name || channel.id}`);
+      
+      logAction({
+        action: "update-rules",
+        targetId: channel.id,
+        targetTag: `#${(channel as any).name || 'unknown-channel'}`,
+        guildId: guildId,
+        reason: "Manually triggered Discord Embed rules update from control dashboard",
+        moderatorId: "ADMIN-DASHBOARD",
+        moderatorTag: "Web Console Administrator"
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Failed to update rules embed:", err);
+      logSystem("ERROR", `Failed to update rules embed: ${err.message}`);
+      res.status(500).json({ error: "Failed to update rules message", message: err.message });
+    }
+  });
+
+  app.post("/api/rules/:guildId/delete", async (req, res) => {
+    const { guildId } = req.params;
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+    const db = getDB();
+    if (!db.rulesSettings) db.rulesSettings = {};
+    const settings = db.rulesSettings[guildId];
+
+    if (!settings || !settings.rulesChannelId || !settings.lastMessageId) {
+      return res.status(400).json({ error: "Operational Failure: No sent Rules Message ID registered to delete." });
+    }
+
+    try {
+      let channel = guild.channels.cache.get(settings.rulesChannelId);
+      if (!channel) {
+        channel = await guild.channels.fetch(settings.rulesChannelId).catch(() => undefined) as any;
+      }
+      if (channel && 'messages' in channel) {
+        const targetMsg = await (channel as any).messages.fetch(settings.lastMessageId).catch(() => undefined);
+        if (targetMsg) {
+          await targetMsg.delete().catch(() => null);
+        }
+      }
+
+      // Clear lastMessageId
+      settings.lastMessageId = "";
+      db.rulesSettings[guildId] = settings;
+      saveDB(db);
+
+      logSystem("SUCCESS", `Rules message successfully deleted from Discord channel: ${(channel as any).name || 'unknown'}`);
+      
+      logAction({
+        action: "delete-rules",
+        targetId: settings.rulesChannelId,
+        targetTag: "rules-channel",
+        guildId: guildId,
+        reason: "Manually deleted rules embed message from control dashboard",
+        moderatorId: "ADMIN-DASHBOARD",
+        moderatorTag: "Web Console Administrator"
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Failed to delete rules embed:", err);
+      logSystem("ERROR", `Failed to delete rules embed: ${err.message}`);
+      res.status(500).json({ error: "Failed to delete rules message", message: err.message });
     }
   });
 
