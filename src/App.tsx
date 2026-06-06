@@ -341,6 +341,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!selectedGuildId && status?.guildList && status.guildList.length > 0) {
+      setSelectedGuildId(status.guildList[0].id);
+    }
+  }, [status, selectedGuildId]);
+
+  useEffect(() => {
     const fetchMembers = async () => {
       if (!selectedGuildId) {
         setMembers([]);
@@ -777,7 +783,7 @@ export default function App() {
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-all ${activeTab === "rules_setup" ? "bg-zinc-700/50 text-white border border-zinc-600/50 shadow-lg shadow-black/20" : "text-zinc-400 hover:bg-zinc-800"}`}
           >
             <div className={`w-1.5 h-1.5 rounded-full ${activeTab === "rules_setup" ? "bg-brand animate-pulse" : "bg-zinc-600"}`}></div>
-            Rules Setup
+            Rules Message Setup
           </button>
 
           <button 
@@ -880,7 +886,9 @@ export default function App() {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-zinc-500 text-sm">System /</span>
-              <span className="font-medium text-sm capitalize">{activeTab} Overview</span>
+              <span className="font-medium text-sm capitalize">
+                {activeTab === "rules_setup" ? "Rules Message Setup" : activeTab.replace("_", " ")} Overview
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-4">
