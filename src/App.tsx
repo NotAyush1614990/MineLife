@@ -3542,6 +3542,22 @@ export default function App() {
 
                         {/* Rules Fields Section */}
                         <div className="space-y-4 pt-4 border-t border-zinc-800">
+                          <div className="flex items-center justify-between pb-4">
+                            <label className="text-xs font-medium text-zinc-400">List Formatting (Bullets)</label>
+                            <button
+                              type="button"
+                              onClick={() => updateRulesSettings({ ...rulesSettings, showRuleBullets: rulesSettings.showRuleBullets === false ? true : false })}
+                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                (rulesSettings.showRuleBullets ?? true) ? "bg-brand" : "bg-zinc-800"
+                              }`}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                                  (rulesSettings.showRuleBullets ?? true) ? "translate-x-4" : "translate-x-0"
+                                }`}
+                              />
+                            </button>
+                          </div>
                           <div className="flex items-center justify-between">
                             <label className="text-xs font-bold text-white uppercase tracking-wider">Embed Sections (Rule Categories)</label>
                             <button
@@ -3592,7 +3608,21 @@ export default function App() {
                                   <div className="space-y-2">
                                     {cat.items?.map((item: string, itemIdx: number) => (
                                       <div key={itemIdx} className="flex items-center gap-2 group/item">
-                                        <div className="text-zinc-600 font-mono text-xs">•</div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const current = rulesSettings.bulletSettings?.[catIdx]?.[itemIdx] ?? true;
+                                            const newBulletSettings = { ...(rulesSettings.bulletSettings || {}) };
+                                            if (!newBulletSettings[catIdx]) newBulletSettings[catIdx] = {};
+                                            newBulletSettings[catIdx][itemIdx] = !current;
+                                            updateRulesSettings({ ...rulesSettings, bulletSettings: newBulletSettings });
+                                          }}
+                                          className={`font-mono text-xs ${
+                                            (rulesSettings.bulletSettings?.[catIdx]?.[itemIdx] ?? true) ? "text-zinc-600" : "text-zinc-900"
+                                          }`}
+                                        >
+                                          •
+                                        </button>
                                         <input
                                           type="text"
                                           value={item || ""}
@@ -3791,10 +3821,10 @@ export default function App() {
                                   {rulesSettings.includeServerSection && (
                                     <div className="space-y-1.5 pb-2 border-b border-[#2F3136]/50">
                                       <div className="font-bold text-xs text-white tracking-tight">
-                                        {rulesSettings.serverSectionTitle || "🏰 Server Info"}
+                                        {rulesSettings.serverSectionTitle}
                                       </div>
                                       <div className="text-xs text-[#DCE0E3] whitespace-pre-wrap leading-normal space-y-1 font-sans">
-                                        <p>{(rulesSettings.serverSectionText || "Welcome to the server!").replace(/{server_name}/gi, status?.guildList?.find(g => g.id === selectedGuildId)?.name || "This Server")}</p>
+                                        <p>{(rulesSettings.serverSectionText || "").replace(/{server_name}/gi, status?.guildList?.find(g => g.id === selectedGuildId)?.name || "This Server")}</p>
                                         {(rulesSettings.showServerMetrics || rulesSettings.serverWebsite) && (
                                           <div className="mt-1.5 space-y-0.5 text-[#B5BAC1] text-[11px] font-mono bg-black/10 p-2 rounded-lg border border-white/[0.02]">
                                             {rulesSettings.showServerMetrics && (
@@ -3821,11 +3851,14 @@ export default function App() {
                                           <div key={idx} className="space-y-1">
                                             <div className="font-bold text-xs text-white tracking-tight">{sc.title}</div>
                                             <div className="text-xs text-[#DCE0E3] space-y-0.5">
-                                              {sc.items?.map((it: string, itIdx: number) => (
-                                                <div key={itIdx} className="pl-1">
-                                                  • {it}
-                                                </div>
-                                              ))}
+                                              {sc.items?.map((it: string, itIdx: number) => {
+                                                const showBullet = rulesSettings.bulletSettings?.[idx]?.[itIdx] ?? true;
+                                                return (
+                                                  <div key={itIdx} className="pl-1">
+                                                    {showBullet ? `• ${it}` : it}
+                                                  </div>
+                                                );
+                                              })}
                                             </div>
                                           </div>
                                         );
