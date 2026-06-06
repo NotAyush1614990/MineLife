@@ -3852,7 +3852,7 @@ export default function App() {
                                             <div className="font-bold text-xs text-white tracking-tight">{sc.title}</div>
                                             <div className="text-xs text-[#DCE0E3] space-y-0.5">
                                               {sc.items?.map((it: string, itIdx: number) => {
-                                                const showBullet = rulesSettings.bulletSettings?.[idx]?.[itIdx] ?? true;
+                                                const showBullet = (rulesSettings.showRuleBullets ?? true) && (rulesSettings.bulletSettings?.[idx]?.[itIdx] ?? true);
                                                 return (
                                                   <div key={itIdx} className="pl-1">
                                                     {showBullet ? `• ${it}` : it}
